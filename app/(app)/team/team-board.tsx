@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { UserPlus, Mail, X, Clock, CheckCircle2 } from "lucide-react";
 import { inviteTeamMember, removeTeamMember, type TeamMember } from "./actions";
 
@@ -21,6 +22,7 @@ export function TeamBoard({
   initialError?: string;
   currentUserId: string | null;
 }) {
+  const router = useRouter();
   const [members, setMembers] = useState(initialMembers);
   const [error, setError] = useState(initialError || null);
   const [showInvite, setShowInvite] = useState(false);
@@ -28,6 +30,12 @@ export function TeamBoard({
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSent, setInviteSent] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Keep the list in sync with the server's data (real UUIDs and all)
+  // whenever this page re-fetches, e.g. after router.refresh().
+  useEffect(() => {
+    setMembers(initialMembers);
+  }, [initialMembers]);
 
   function closeInviteModal() {
     setShowInvite(false);
@@ -46,17 +54,10 @@ export function TeamBoard({
         return;
       }
       setInviteSent(email.trim());
-      setMembers((prev) => [
-        ...prev,
-        {
-          id: `pending-${Date.now()}`,
-          email: email.trim().toLowerCase(),
-          created_at: new Date().toISOString(),
-          last_sign_in_at: null,
-          invited: true,
-        },
-      ]);
       setEmail("");
+      // Re-fetch the real member list from the server (with the new
+      // teammate's actual UUID) instead of guessing at a fake local one.
+      router.refresh();
     });
   }
 
@@ -72,6 +73,7 @@ export function TeamBoard({
         return;
       }
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
+      router.refresh();
     });
   }
 
