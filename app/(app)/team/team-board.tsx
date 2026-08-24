@@ -2,8 +2,13 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus, Mail, X, Clock, CheckCircle2 } from "lucide-react";
-import { inviteTeamMember, removeTeamMember, type TeamMember } from "./actions";
+import { UserPlus, Mail, X, Clock, CheckCircle2, ShieldCheck, Shield } from "lucide-react";
+import {
+  inviteTeamMember,
+  removeTeamMember,
+  setTeamMemberRole,
+  type TeamMember,
+} from "./actions";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -17,10 +22,12 @@ export function TeamBoard({
   initialMembers,
   initialError,
   currentUserId,
+  isAdmin,
 }: {
   initialMembers: TeamMember[];
   initialError?: string;
   currentUserId: string | null;
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const [members, setMembers] = useState(initialMembers);
@@ -29,6 +36,7 @@ export function TeamBoard({
   const [email, setEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSent, setInviteSent] = useState<string | null>(null);
+  const [changingRoleId, setChangingRoleId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // Keep the list in sync with the server's data (real UUIDs and all)
@@ -77,6 +85,33 @@ export function TeamBoard({
     });
   }
 
+  function handleToggleRole(member: TeamMember) {
+    const nextRole = member.role === "admin" ? "member" : "admin";
+    if (
+      !confirm(
+        nextRole === "admin"
+          ? `Make ${member.email} an admin? They'll be able to delete clients and manage categories.`
+          : `Remove admin access from ${member.email}? They'll keep normal member access.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setChangingRoleId(member.id);
+    startTransition(async () => {
+      const result = await setTeamMemberRole(member.id, nextRole);
+      setChangingRoleId(null);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setMembers((prev) =>
+        prev.map((m) => (m.id === member.id ? { ...m, role: nextRole } : m))
+      );
+      router.refresh();
+    });
+  }
+
   return (
     <div>
       {error && (
@@ -89,13 +124,15 @@ export function TeamBoard({
         <p className="text-sm text-slate-500">
           {members.length} member{members.length === 1 ? "" : "s"}
         </p>
-        <button
-          onClick={() => setShowInvite(true)}
-          className="inline-flex items-center justify-center gap-1.5 rounded-full bg-brand-ink text-white text-sm font-semibold px-5 py-2.5 shadow-md hover:bg-black hover:shadow-lg transition-all whitespace-nowrap"
-        >
-          <UserPlus className="h-4 w-4" />
-          Invite teammate
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowInvite(true)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-full bg-brand-ink text-white text-sm font-semibold px-5 py-2.5 shadow-md hover:bg-black hover:shadow-lg transition-all whitespace-nowrap"
+          >
+            <UserPlus className="h-4 w-4" />
+            Invite teammate
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl bg-white shadow-md ring-1 ring-black/[0.06] divide-y divide-black/5 overflow-hidden">
@@ -129,6 +166,17 @@ export function TeamBoard({
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
+                {member.role === "admin" ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 text-[11px] font-semibold px-2.5 py-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    Admin
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-500 text-[11px] font-semibold px-2.5 py-1">
+                    <Shield className="h-3 w-3" />
+                    Member
+                  </span>
+                )}
                 {member.invited ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 text-[11px] font-semibold px-2.5 py-1">
                     <Clock className="h-3 w-3" />
@@ -140,15 +188,29 @@ export function TeamBoard({
                     Active
                   </span>
                 )}
-                {member.id !== currentUserId && (
-                  <button
-                    onClick={() => handleRemove(member)}
-                    disabled={isPending}
-                    title="Remove from team"
-                    className="opacity-0 group-hover:opacity-100 h-7 w-7 rounded-full flex items-center justify-center text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all disabled:opacity-50"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                {isAdmin && member.id !== currentUserId && (
+                  <>
+                    <button
+                      onClick={() => handleToggleRole(member)}
+                      disabled={isPending}
+                      title={member.role === "admin" ? "Remove admin access" : "Make admin"}
+                      className="opacity-0 group-hover:opacity-100 text-[11px] font-semibold text-slate-400 hover:text-brand-amber-dark transition-all disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {changingRoleId === member.id
+                        ? "…"
+                        : member.role === "admin"
+                        ? "Remove admin"
+                        : "Make admin"}
+                    </button>
+                    <button
+                      onClick={() => handleRemove(member)}
+                      disabled={isPending}
+                      title="Remove from team"
+                      className="opacity-0 group-hover:opacity-100 h-7 w-7 rounded-full flex items-center justify-center text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>

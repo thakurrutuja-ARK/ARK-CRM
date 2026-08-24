@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin, type Role } from "@/lib/auth/role";
 
 export type TeamMember = {
   id: string;
@@ -10,6 +11,7 @@ export type TeamMember = {
   created_at: string;
   last_sign_in_at: string | null;
   invited: boolean;
+  role: Role;
 };
 
 async function getSiteUrl() {
@@ -33,6 +35,17 @@ async function requireSignedIn() {
   return user;
 }
 
+// Team management (inviting, removing, changing roles) is admin-only —
+// unlike client/document actions, which stay open to every signed-in
+// teammate. See lib/auth/role.ts for how the role is read.
+async function requireAdmin() {
+  const user = await requireSignedIn();
+  if (!isAdmin(user)) {
+    throw new Error("Only an admin can do that.");
+  }
+  return user;
+}
+
 export async function listTeamMembers(): Promise<{
   members: TeamMember[];
   error?: string;
@@ -50,6 +63,7 @@ export async function listTeamMembers(): Promise<{
         created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at || null,
         invited: !u.last_sign_in_at,
+        role: (u.app_metadata?.role === "admin" ? "admin" : "member") as Role,
       }))
       .sort((a, b) => a.email.localeCompare(b.email));
 
@@ -71,15 +85,25 @@ export async function inviteTeamMember(
   }
 
   try {
-    await requireSignedIn();
+    await requireAdmin();
     const admin = createAdminClient();
     const siteUrl = await getSiteUrl();
 
-    const { error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
       redirectTo: `${siteUrl}/auth/confirm?next=/set-password`,
     });
 
     if (error) return { error: error.message };
+
+    // New teammates start as regular members — an admin promotes them
+    // later from this page if needed. inviteUserByEmail has no way to set
+    // app_metadata directly, so it's a follow-up call.
+    if (data?.user) {
+      await admin.auth.admin.updateUserById(data.user.id, {
+        app_metadata: { role: "member" },
+      });
+    }
+
     return { success: true };
   } catch (err) {
     return {
@@ -92,7 +116,7 @@ export async function removeTeamMember(
   userId: string
 ): Promise<{ success?: true; error?: string }> {
   try {
-    const user = await requireSignedIn();
+    const user = await requireAdmin();
     if (user.id === userId) {
       return { error: "You can't remove your own account." };
     }
@@ -103,6 +127,28 @@ export async function removeTeamMember(
   } catch (err) {
     return {
       error: err instanceof Error ? err.message : "Couldn't remove that teammate.",
+    };
+  }
+}
+
+export async function setTeamMemberRole(
+  userId: string,
+  role: Role
+): Promise<{ success?: true; error?: string }> {
+  try {
+    const user = await requireAdmin();
+    if (user.id === userId) {
+      return { error: "You can't change your own role." };
+    }
+    const admin = createAdminClient();
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { role },
+    });
+    if (error) return { error: error.message };
+    return { success: true };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "Couldn't update that teammate's role.",
     };
   }
 }
