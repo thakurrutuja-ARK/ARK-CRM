@@ -11,15 +11,15 @@ create extension if not exists "pgcrypto";
 -- Clients
 -- ---------------------------------------------------------------------
 create table if not exists public.clients (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  notes text,
-  category text,
-  categories text[] not null default '{}',
-  keywords text[] not null default '{}',
-  created_at timestamptz not null default now(),
-  created_by uuid references auth.users (id) on delete set null
-);
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    notes text,
+    category text,
+    categories text[] not null default '{}',
+    keywords text[] not null default '{}',
+    created_at timestamptz not null default now(),
+    created_by uuid references auth.users (id) on delete set null
+  );
 
 -- Safe to re-run: adds the columns to a clients table created before
 -- categories/keywords existed, without touching existing rows.
@@ -35,8 +35,8 @@ alter table public.clients add column if not exists logo_url text;
 do $$
 begin
   if not exists (
-    select 1 from public.clients where array_length(categories, 1) > 0
-  ) then
+      select 1 from public.clients where array_length(categories, 1) > 0
+    ) then
     update public.clients
     set categories = array[category]
     where category is not null;
@@ -52,12 +52,12 @@ create index if not exists clients_categories_idx on public.clients using gin (c
 -- app layer: see the "Manage categories" actions in the dashboard.)
 -- ---------------------------------------------------------------------
 create table if not exists public.categories (
-  id uuid primary key default gen_random_uuid(),
-  name text not null unique,
-  color_index integer not null default 0,
-  created_at timestamptz not null default now(),
-  created_by uuid references auth.users (id) on delete set null
-);
+    id uuid primary key default gen_random_uuid(),
+    name text not null unique,
+    color_index integer not null default 0,
+    created_at timestamptz not null default now(),
+    created_by uuid references auth.users (id) on delete set null
+  );
 
 -- Seeds the original fixed category list once, for brand-new projects.
 -- Safe to re-run: a unique constraint on name means this only inserts
@@ -79,12 +79,12 @@ on conflict (name) do nothing;
 -- Folders (flat — one level, used to organize a client's documents)
 -- ---------------------------------------------------------------------
 create table if not exists public.folders (
-  id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references public.clients (id) on delete cascade,
-  name text not null,
-  created_at timestamptz not null default now(),
-  created_by uuid references auth.users (id) on delete set null
-);
+    id uuid primary key default gen_random_uuid(),
+    client_id uuid not null references public.clients (id) on delete cascade,
+    name text not null,
+    created_at timestamptz not null default now(),
+    created_by uuid references auth.users (id) on delete set null
+  );
 
 create index if not exists folders_client_id_idx on public.folders (client_id);
 
@@ -92,23 +92,37 @@ create index if not exists folders_client_id_idx on public.folders (client_id);
 -- Documents (metadata only — the actual file bytes live in Storage)
 -- ---------------------------------------------------------------------
 create table if not exists public.documents (
-  id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references public.clients (id) on delete cascade,
-  folder_id uuid references public.folders (id) on delete set null,
-  file_name text not null,
-  storage_path text not null unique,
-  file_type text,
-  file_size bigint,
-  uploaded_by uuid references auth.users (id) on delete set null,
-  created_at timestamptz not null default now()
-);
+    id uuid primary key default gen_random_uuid(),
+    client_id uuid not null references public.clients (id) on delete cascade,
+    folder_id uuid references public.folders (id) on delete set null,
+    file_name text not null,
+    storage_path text not null unique,
+    file_type text,
+    file_size bigint,
+    uploaded_by uuid references auth.users (id) on delete set null,
+    created_at timestamptz not null default now()
+  );
 
 -- Safe to re-run: adds folder support to a documents table created
 -- before folders existed, without touching existing rows.
 alter table public.documents add column if not exists folder_id uuid references public.folders (id) on delete set null;
 
+-- Safe to re-run: adds full-text search support to a documents table
+-- created before it existed. content_text holds the plain text pulled out
+-- of PDFs/Word/PowerPoint at upload time (see lib/documents); content_tsv
+-- is a generated column combining file name + content so search matches
+-- either. Legacy .doc/.ppt and images have no extractor, so content_text
+-- stays null for them and they remain searchable by file name only.
+alter table public.documents add column if not exists content_text text;
+alter table public.documents add column if not exists content_indexed_at timestamptz;
+alter table public.documents add column if not exists content_tsv tsvector
+  generated always as (
+      to_tsvector('english', coalesce(file_name, '') || ' ' || coalesce(content_text, ''))
+    ) stored;
+
 create index if not exists documents_client_id_idx on public.documents (client_id);
 create index if not exists documents_folder_id_idx on public.documents (folder_id);
+create index if not exists documents_content_tsv_idx on public.documents using gin (content_tsv);
 
 -- ---------------------------------------------------------------------
 -- Row Level Security
