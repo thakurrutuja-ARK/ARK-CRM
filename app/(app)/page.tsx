@@ -1,16 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { ClientsBoard } from "./clients-board";
 import { DashboardBanner } from "@/components/dashboard-banner";
+import { isAdmin } from "@/lib/auth/role";
 import type { Client, Category, Document } from "@/types/db";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  // These three queries don't depend on each other, so fire them all at
+  // These four queries don't depend on each other, so fire them all at
   // once instead of waiting for each one to finish in turn — on a
   // database that's geographically far from where this runs, each
   // round trip adds real latency, and there's no reason to pay for
-  // three of them back-to-back when they can happen at the same time.
+  // four of them back-to-back when they can happen at the same time.
   //
   // The documents query pulls enough fields (but not the full
   // content_text, which can be up to 200KB per row) for the dashboard's
@@ -20,6 +21,9 @@ export default async function DashboardPage() {
     { data: clients, error },
     { data: docRows },
     { data: categories },
+    {
+      data: { user },
+    },
   ] = await Promise.all([
     supabase.from("clients").select("*").order("created_at", { ascending: false }),
     supabase
@@ -29,6 +33,7 @@ export default async function DashboardPage() {
       )
       .order("created_at", { ascending: false }),
     supabase.from("categories").select("*").order("created_at", { ascending: true }),
+    supabase.auth.getUser(),
   ]);
 
   const docCounts: Record<string, number> = {};
@@ -65,6 +70,7 @@ export default async function DashboardPage() {
         docCounts={docCounts}
         documents={(docRows as Document[]) || []}
         initialCategories={(categories as Category[]) || []}
+        isAdmin={isAdmin(user)}
       />
     </div>
   );

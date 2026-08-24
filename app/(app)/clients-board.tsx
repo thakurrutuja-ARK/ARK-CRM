@@ -73,11 +73,16 @@ export function ClientsBoard({
   docCounts,
   documents,
   initialCategories,
+  isAdmin,
 }: {
   clients: Client[];
   docCounts: Record<string, number>;
   documents: Document[];
   initialCategories: Category[];
+  // Admins can delete clients and manage (create/rename/delete) categories;
+  // everyone signed in can still add/edit clients and upload documents —
+  // see lib/auth/role.ts and the matching RLS policies in schema.sql.
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const [categories, setCategories] = useState<Category[]>(initialCategories);
@@ -609,13 +614,15 @@ export function ClientsBoard({
             </button>
           );
         })}
-        <button
-          onClick={() => setShowManageCategories(true)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-black/15 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:border-brand-amber hover:text-brand-amber-dark transition-colors"
-        >
-          <Settings className="h-3 w-3" />
-          Manage
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowManageCategories(true)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-black/15 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:border-brand-amber hover:text-brand-amber-dark transition-colors"
+          >
+            <Settings className="h-3 w-3" />
+            Manage
+          </button>
+        )}
       </div>
 
       {showDocumentsSection && (
@@ -737,14 +744,16 @@ export function ClientsBoard({
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
-                <button
-                  onClick={() => handleDelete(client.id)}
-                  disabled={deletingId === client.id}
-                  title="Delete client"
-                  className="h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50"
-                >
-                  {deletingId === client.id ? "…" : <X className="h-3.5 w-3.5" />}
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleDelete(client.id)}
+                    disabled={deletingId === client.id}
+                    title="Delete client"
+                    className="h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50"
+                  >
+                    {deletingId === client.id ? "…" : <X className="h-3.5 w-3.5" />}
+                  </button>
+                )}
               </div>
               <Link href={`/clients/${client.id}`} className="block">
                 <div className="flex items-center gap-3">
@@ -864,32 +873,36 @@ export function ClientsBoard({
                   })}
                   {categories.length === 0 && (
                     <p className="text-xs text-slate-400">
-                      No categories yet — add one below.
+                      {isAdmin
+                        ? "No categories yet — add one below."
+                        : "No categories yet — ask an admin to add one."}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2 mt-2.5">
-                  <input
-                    value={newCategoryInput}
-                    onChange={(e) => setNewCategoryInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddNewCategoryInline(e);
-                      }
-                    }}
-                    placeholder="+ Add new category…"
-                    className="w-full rounded-xl border border-black/10 px-3 py-1.5 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddNewCategoryInline}
-                    disabled={!newCategoryInput.trim()}
-                    className="shrink-0 rounded-xl bg-slate-100 text-slate-600 text-sm font-semibold px-3 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                  >
-                    Add
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex gap-2 mt-2.5">
+                    <input
+                      value={newCategoryInput}
+                      onChange={(e) => setNewCategoryInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddNewCategoryInline(e);
+                        }
+                      }}
+                      placeholder="+ Add new category…"
+                      className="w-full rounded-xl border border-black/10 px-3 py-1.5 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddNewCategoryInline}
+                      disabled={!newCategoryInput.trim()}
+                      className="shrink-0 rounded-xl bg-slate-100 text-slate-600 text-sm font-semibold px-3 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label
@@ -936,7 +949,7 @@ export function ClientsBoard({
         </div>
       )}
 
-      {showManageCategories && (
+      {showManageCategories && isAdmin && (
         <div
           className="fixed inset-0 z-20 bg-brand-ink/50 flex items-center justify-center p-4"
           onClick={closeManageCategories}
