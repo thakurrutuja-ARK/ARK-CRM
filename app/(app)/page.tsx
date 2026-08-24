@@ -1,24 +1,35 @@
 import { createClient } from "@/lib/supabase/server";
 import { ClientsBoard } from "./clients-board";
 import { DashboardBanner } from "@/components/dashboard-banner";
-import type { Client, Category } from "@/types/db";
+import type { Client, Category, Document } from "@/types/db";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const { data: clients, error } = await supabase
-    .from("clients")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const { data: docRows } = await supabase
-    .from("documents")
-    .select("client_id");
-
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("*")
-    .order("created_at", { ascending: true });
+  // These three queries don't depend on each other, so fire them all at
+  // once instead of waiting for each one to finish in turn — on a
+  // database that's geographically far from where this runs, each
+  // round trip adds real latency, and there's no reason to pay for
+  // three of them back-to-back when they can happen at the same time.
+  //
+  // The documents query pulls enough fields (but not the full
+  // content_text, which can be up to 200KB per row) for the dashboard's
+  // "which files match this tag/search" panel — see clients-board.tsx —
+  // without shipping every document's extracted text to the browser.
+  const [
+    { data: clients, error },
+    { data: docRows },
+    { data: categories },
+  ] = await Promise.all([
+    supabase.from("clients").select("*").order("created_at", { ascending: false }),
+    supabase
+      .from("documents")
+      .select(
+        "id, client_id, folder_id, file_name, storage_path, file_type, file_size, created_at"
+      )
+      .order("created_at", { ascending: false }),
+    supabase.from("categories").select("*").order("created_at", { ascending: true }),
+  ]);
 
   const docCounts: Record<string, number> = {};
   (docRows || []).forEach((row) => {
@@ -52,6 +63,7 @@ export default async function DashboardPage() {
       <ClientsBoard
         clients={(clients as Client[]) || []}
         docCounts={docCounts}
+        documents={(docRows as Document[]) || []}
         initialCategories={(categories as Category[]) || []}
       />
     </div>
