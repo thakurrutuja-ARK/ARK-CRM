@@ -5,8 +5,51 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { styleForCategory, nextColorIndex, parseKeywords } from "@/lib/categories";
-import type { Client, Category } from "@/types/db";
-import { Search, Users, FileText, Tags, X, Settings, Pencil } from "lucide-react";
+import type { Client, Category, Document } from "@/types/db";
+import { FileIcon, fileExt } from "@/components/file-icon";
+import { PreviewModal } from "@/components/preview-modal";
+import {
+  Search,
+  Users,
+  FileText,
+  Tags,
+  X,
+  Settings,
+  Pencil,
+  Eye,
+  Download,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
+
+const SEARCH_DEBOUNCE_MS = 300;
+
+// Builds a Postgres prefix tsquery ("invoice:* & march:*") from whatever
+// the user has typed so far, so results update as-you-type instead of only
+// matching whole words. Mirrors the same helper in the per-client document
+// library — kept small enough that duplicating it here beats introducing a
+// shared-utility import for one function.
+function toPrefixTsQuery(input: string) {
+  return input
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean)
+    .map((word) => `${word}:*`)
+    .join(" & ");
+}
+
+function formatBytes(bytes: number | null) {
+  if (!bytes) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return `${value.toFixed(value < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
 
 function initials(name: string) {
   return name
@@ -28,16 +71,28 @@ function formatDate(iso: string) {
 export function ClientsBoard({
   clients,
   docCounts,
+  documents,
   initialCategories,
 }: {
   clients: Client[];
   docCounts: Record<string, number>;
+  documents: Document[];
   initialCategories: Category[];
 }) {
   const router = useRouter();
   const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [docSearchResults, setDocSearchResults] = useState<Document[] | null>(
+    null
+  );
+  const [searchingDocs, setSearchingDocs] = useState(false);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(
+    null
+  );
+  const [preview, setPreview] = useState<{ doc: Document; url: string } | null>(
+    null
+  );
   const [showAdd, setShowAdd] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -94,6 +149,117 @@ export function ClientsBoard({
       return haystack.includes(q);
     });
   }, [clients, query, activeCategory]);
+
+  const clientById = useMemo(
+    () => new Map(clients.map((c) => [c.id, c])),
+    [clients]
+  );
+
+  // Which clients the active category pill (if any) restricts document
+  // matches to — separate from `filtered` because a typed search query
+  // shouldn't narrow which client IDs count as "in this category".
+  const activeCategoryClientIds = useMemo(() => {
+    if (!activeCategory) return null;
+    return new Set(
+      clients
+        .filter((c) => (c.categories || []).includes(activeCategory))
+        .map((c) => c.id)
+    );
+  }, [clients, activeCategory]);
+
+  const filteredClientIds = useMemo(
+    () => new Set(filtered.map((c) => c.id)),
+    [filtered]
+  );
+
+  const showDocumentsSection = query.trim().length > 0 || activeCategory !== null;
+
+  // Documents that belong to a client currently matched by name, category,
+  // or keyword — this is what makes clicking a tag (or typing a client's
+  // keyword) surface the actual files instead of just the client card.
+  const tagMatchedDocuments = useMemo(() => {
+    if (!showDocumentsSection) return [];
+    return documents.filter((d) => filteredClientIds.has(d.client_id));
+  }, [documents, filteredClientIds, showDocumentsSection]);
+
+  // Runs a dashboard-wide (not scoped to one client) content + file-name
+  // search as the user types, debounced so we're not firing a query on
+  // every keystroke. This is what catches a match that lives inside a
+  // document's extracted text even when no client's name/category/keyword
+  // matches the typed query.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setDocSearchResults(null);
+      setSearchingDocs(false);
+      return;
+    }
+    const tsq = toPrefixTsQuery(q);
+    if (!tsq) {
+      setDocSearchResults([]);
+      setSearchingDocs(false);
+      return;
+    }
+    setSearchingDocs(true);
+    const handle = setTimeout(async () => {
+      const supabase = createClient();
+      let req = supabase
+        .from("documents")
+        .select(
+          "id, client_id, folder_id, file_name, storage_path, file_type, file_size, created_at"
+        )
+        .textSearch("content_tsv", tsq)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (activeCategoryClientIds) {
+        req = req.in("client_id", Array.from(activeCategoryClientIds));
+      }
+      const { data, error } = await req;
+      setDocSearchResults(error ? [] : (data as Document[]));
+      setSearchingDocs(false);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [query, activeCategoryClientIds]);
+
+  // Union of the two document-matching paths above, deduped by id and
+  // shown newest-first.
+  const matchedDocuments = useMemo(() => {
+    const map = new Map<string, Document>();
+    tagMatchedDocuments.forEach((d) => map.set(d.id, d));
+    (docSearchResults || []).forEach((d) => map.set(d.id, d));
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [tagMatchedDocuments, docSearchResults]);
+
+  async function getSignedUrl(doc: Document) {
+    const supabase = createClient();
+    const { data, error } = await supabase.storage
+      .from("client-documents")
+      .createSignedUrl(doc.storage_path, 300);
+    if (error || !data) return null;
+    return data.signedUrl;
+  }
+
+  async function handleDownload(doc: Document) {
+    const url = await getSignedUrl(doc);
+    if (!url) {
+      alert("Couldn't generate a download link. Please try again.");
+      return;
+    }
+    window.open(url, "_blank");
+  }
+
+  async function handlePreviewDoc(doc: Document) {
+    setPreviewLoadingId(doc.id);
+    const url = await getSignedUrl(doc);
+    setPreviewLoadingId(null);
+    if (!url) {
+      alert("Couldn't open a preview. Please try again.");
+      return;
+    }
+    setPreview({ doc, url });
+  }
 
   const totalDocuments = useMemo(
     () => Object.values(docCounts).reduce((sum, n) => sum + n, 0),
@@ -452,6 +618,81 @@ export function ClientsBoard({
         </button>
       </div>
 
+      {showDocumentsSection && (
+        <div className="mb-6">
+          <p className="text-xs font-semibold tracking-wide uppercase text-slate-400 mb-2">
+            Documents
+            {searchingDocs
+              ? " · searching…"
+              : ` (${matchedDocuments.length})`}
+          </p>
+          {matchedDocuments.length > 0 ? (
+            <ul className="divide-y divide-black/5 rounded-2xl bg-white shadow-md ring-1 ring-black/[0.06] overflow-hidden">
+              {matchedDocuments.map((doc) => {
+                const client = clientById.get(doc.client_id);
+                return (
+                  <li
+                    key={doc.id}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-brand-amber/5 transition-colors"
+                  >
+                    <button
+                      onClick={() => handlePreviewDoc(doc)}
+                      className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                      title="Preview"
+                    >
+                      <FileIcon fileName={doc.file_name} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-brand-ink truncate">
+                          {doc.file_name}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">
+                          {formatBytes(doc.file_size)} · Uploaded{" "}
+                          {formatDate(doc.created_at)}
+                          {client ? ` · ${client.name}` : ""}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => router.push(`/clients/${doc.client_id}`)}
+                      title={`Open ${client?.name ?? "client"}`}
+                      className="p-2 text-slate-400 hover:text-brand-amber-dark transition-colors"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handlePreviewDoc(doc)}
+                      disabled={previewLoadingId === doc.id}
+                      title="Preview"
+                      className="p-2 text-slate-400 hover:text-brand-amber-dark transition-colors"
+                    >
+                      {previewLoadingId === doc.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleDownload(doc)}
+                      title="Download"
+                      className="p-2 text-slate-400 hover:text-brand-amber-dark transition-colors"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            !searchingDocs && (
+              <p className="text-sm text-slate-500 py-6 text-center rounded-2xl bg-white shadow-md ring-1 ring-black/[0.06]">
+                No documents match
+                {query.trim() ? ` "${query.trim()}"` : " this filter"}.
+              </p>
+            )
+          )}
+        </div>
+      )}
+
       {filtered.length === 0 && clients.length > 0 && (
         <p className="text-sm text-slate-500 py-12 text-center">
           No clients match your search.
@@ -796,6 +1037,16 @@ export function ClientsBoard({
             </div>
           </div>
         </div>
+      )}
+
+      {preview && (
+        <PreviewModal
+          fileName={preview.doc.file_name}
+          fileType={preview.doc.file_type || fileExt(preview.doc.file_name)}
+          url={preview.url}
+          onClose={() => setPreview(null)}
+          onDownload={() => handleDownload(preview.doc)}
+        />
       )}
     </div>
   );
