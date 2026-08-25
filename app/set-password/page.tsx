@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { isAdmin } from "@/lib/auth/role";
 
 export default function SetPasswordPage() {
   const router = useRouter();
@@ -10,6 +11,26 @@ export default function SetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Only the admin account has a password at all — everyone else signs
+  // in with an emailed link. This guards against any old invite/reset
+  // email that might still point here.
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (cancelled) return;
+      if (!isAdmin(user)) {
+        router.replace("/");
+        return;
+      }
+      setChecking(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,6 +59,10 @@ export default function SetPasswordPage() {
     router.refresh();
   }
 
+  if (checking) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
@@ -49,10 +74,10 @@ export default function SetPasswordPage() {
             className="h-12 w-auto mx-auto mb-4"
           />
           <h1 className="font-display text-2xl font-extrabold text-brand-ink tracking-tight">
-            Welcome to the team
+            Set your password
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Set a password to finish creating your account
+            Choose a new password for your admin account
           </p>
         </div>
 
