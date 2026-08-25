@@ -16,6 +16,15 @@ import type { User } from "@supabase/supabase-js";
  */
 export type Role = "admin" | "member";
 
+/**
+ * The one account that ever signs in with a password. The login page
+ * checks the typed email against this, client-side, *before* anyone is
+ * authenticated, purely to decide which UI to show (password field vs.
+ * "we'll email you a link"). It grants nothing by itself — actual access
+ * is still enforced server-side via app_metadata.role, same as always.
+ */
+export const ADMIN_EMAIL = "rutuja@arkpeoplesolutions.com";
+
 export function roleOf(user: Pick<User, "app_metadata"> | null | undefined): Role {
   return user?.app_metadata?.role === "admin" ? "admin" : "member";
 }
