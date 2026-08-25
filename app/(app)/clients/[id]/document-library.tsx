@@ -30,7 +30,7 @@ const ALLOWED_EXTENSIONS = [
   "jpeg",
   "png",
 ];
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — Supabase free-tier per-file limit
+const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB — raised after upgrading to Supabase Pro
 const ACCEPT_ATTR = ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(",");
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -221,7 +221,7 @@ export function DocumentLibrary({
               key,
               name: file.name,
               status: "error",
-              error: "File is larger than 50MB",
+              error: "File is larger than 1GB",
             },
           ]);
           continue;
@@ -666,7 +666,7 @@ export function DocumentLibrary({
             {currentFolder
               ? `Uploads here go into "${currentFolder.name}" — `
               : ""}
-            PDF, Word, PowerPoint, JPEG, PNG — up to 50MB each
+            PDF, Word, PowerPoint, JPEG, PNG — up to 1GB each
           </p>
         </div>
       )}
