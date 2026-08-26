@@ -20,7 +20,15 @@ import {
   Download,
   ExternalLink,
   Loader2,
+  LayoutGrid,
+  List,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
+
+const VIEW_MODE_STORAGE_KEY = "ark-crm-clients-view-mode";
+
+type SortKey = "name" | "documents" | "added";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -116,12 +124,34 @@ export function ClientsBoard({
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(
     null
   );
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   // Keep local state in sync whenever the server sends fresh categories
   // (e.g. after router.refresh() reloads the parent server component).
   useEffect(() => {
     setCategories(initialCategories);
   }, [initialCategories]);
+
+  // Remember the user's preferred view (grid vs. list) across visits.
+  useEffect(() => {
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (stored === "grid" || stored === "list") setViewMode(stored);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode]);
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -154,6 +184,25 @@ export function ClientsBoard({
       return haystack.includes(q);
     });
   }, [clients, query, activeCategory]);
+
+  // Only used by the list view — the card grid keeps its existing
+  // (unsorted) order via `filtered` so nothing changes there.
+  const sortedFiltered = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (sortKey === "name") {
+        return a.name.localeCompare(b.name) * dir;
+      }
+      if (sortKey === "documents") {
+        return ((docCounts[a.id] || 0) - (docCounts[b.id] || 0)) * dir;
+      }
+      // sortKey === "added"
+      return (
+        (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) *
+        dir
+      );
+    });
+  }, [filtered, sortKey, sortDir, docCounts]);
 
   const clientById = useMemo(
     () => new Map(clients.map((c) => [c.id, c])),
@@ -574,12 +623,38 @@ export function ClientsBoard({
             className="w-full rounded-full border border-black/10 bg-white pl-10 pr-4 py-2.5 text-sm text-brand-ink shadow-md focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
           />
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="inline-flex items-center justify-center gap-1.5 rounded-full bg-brand-ink text-white text-sm font-semibold px-5 py-2.5 shadow-md hover:bg-black hover:shadow-lg transition-all whitespace-nowrap"
-        >
-          + Add client
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex items-center rounded-full border border-black/10 bg-white p-1 shadow-md shrink-0">
+            <button
+              onClick={() => setViewMode("grid")}
+              title="Grid view"
+              className={`h-8 w-8 flex items-center justify-center rounded-full transition-colors ${
+                viewMode === "grid"
+                  ? "bg-brand-ink text-white"
+                  : "text-slate-400 hover:text-brand-ink"
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              title="List view"
+              className={`h-8 w-8 flex items-center justify-center rounded-full transition-colors ${
+                viewMode === "list"
+                  ? "bg-brand-ink text-white"
+                  : "text-slate-400 hover:text-brand-ink"
+              }`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-full bg-brand-ink text-white text-sm font-semibold px-5 py-2.5 shadow-md hover:bg-black hover:shadow-lg transition-all whitespace-nowrap"
+          >
+            + Add client
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -721,6 +796,7 @@ export function ClientsBoard({
         </div>
       )}
 
+      {viewMode === "grid" && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filtered.map((client) => {
           const clientCats = client.categories || [];
@@ -810,6 +886,149 @@ export function ClientsBoard({
           );
         })}
       </div>
+      )}
+
+      {viewMode === "list" && filtered.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl bg-white shadow-md ring-1 ring-black/[0.06]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-black/5 text-left">
+                <th className="px-4 py-3">
+                  <button
+                    onClick={() => handleSort("name")}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-brand-ink transition-colors"
+                  >
+                    Name
+                    {sortKey === "name" &&
+                      (sortDir === "asc" ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      ))}
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Categories
+                </th>
+                <th className="px-4 py-3">
+                  <button
+                    onClick={() => handleSort("documents")}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-brand-ink transition-colors"
+                  >
+                    Documents
+                    {sortKey === "documents" &&
+                      (sortDir === "asc" ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      ))}
+                  </button>
+                </th>
+                <th className="px-4 py-3">
+                  <button
+                    onClick={() => handleSort("added")}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-brand-ink transition-colors"
+                  >
+                    Added
+                    {sortKey === "added" &&
+                      (sortDir === "asc" ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      ))}
+                  </button>
+                </th>
+                <th className="px-4 py-3 w-20" />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedFiltered.map((client) => {
+                const clientCats = client.categories || [];
+                const docCount = docCounts[client.id] || 0;
+                return (
+                  <tr
+                    key={client.id}
+                    className="group border-b border-black/5 last:border-0 hover:bg-brand-amber/5 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="flex items-center gap-3 min-w-0"
+                      >
+                        <div className="h-9 w-9 shrink-0 rounded-full bg-brand-amber/15 text-brand-amber-dark font-display font-extrabold text-xs flex items-center justify-center ring-1 ring-black/5 overflow-hidden">
+                          {client.logo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={client.logo_url}
+                              alt=""
+                              className="h-full w-full object-contain p-1"
+                            />
+                          ) : (
+                            initials(client.name) || "?"
+                          )}
+                        </div>
+                        <span className="font-semibold text-brand-ink truncate">
+                          {client.name}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {clientCats.length > 0 ? (
+                          clientCats.map((cat) => {
+                            const style = styleForCategory(categories, cat);
+                            return (
+                              <span
+                                key={cat}
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${style.bg} ${style.fg}`}
+                              >
+                                {cat}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {docCount} document{docCount === 1 ? "" : "s"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                      {formatDate(client.created_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                          onClick={() => openEditModal(client)}
+                          title="Edit client"
+                          className="h-7 w-7 flex items-center justify-center rounded-full text-slate-300 hover:text-brand-amber-dark hover:bg-brand-amber/10"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDelete(client.id)}
+                            disabled={deletingId === client.id}
+                            title="Delete client"
+                            className="h-7 w-7 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50"
+                          >
+                            {deletingId === client.id ? (
+                              "…"
+                            ) : (
+                              <X className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showAdd && (
         <div
