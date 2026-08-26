@@ -88,6 +88,11 @@ create table if not exists public.folders (
 
 create index if not exists folders_client_id_idx on public.folders (client_id);
 
+-- Prevents two folders with the same name (case-insensitive) from
+-- existing under the same client.
+create unique index if not exists folders_unique_name_per_client_idx
+  on public.folders (client_id, lower(name));
+
 -- Every new client automatically gets these three folders, so nobody has
 -- to remember to create them by hand. Runs as the client row is inserted
 -- (any insert path — the app, a future script, etc. — gets this for
