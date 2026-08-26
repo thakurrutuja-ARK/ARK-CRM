@@ -14,32 +14,34 @@ export default async function ClientDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("*")
-    .eq("id", id)
-    .single();
+  // None of these four queries depend on each other's results (documents
+  // and folders only need the id from the URL, not the client record),
+  // so run them all at once instead of one after another — each round
+  // trip to the database costs real time, and there's no need to pay
+  // for four of them in sequence.
+  const [
+    { data: client },
+    { data: documents },
+    { data: folders },
+    { data: categories },
+  ] = await Promise.all([
+    supabase.from("clients").select("*").eq("id", id).single(),
+    supabase
+      .from("documents")
+      .select("*")
+      .eq("client_id", id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("folders")
+      .select("*")
+      .eq("client_id", id)
+      .order("name", { ascending: true }),
+    supabase.from("categories").select("*").order("created_at", { ascending: true }),
+  ]);
 
   if (!client) {
     notFound();
   }
-
-  const { data: documents } = await supabase
-    .from("documents")
-    .select("*")
-    .eq("client_id", id)
-    .order("created_at", { ascending: false });
-
-  const { data: folders } = await supabase
-    .from("folders")
-    .select("*")
-    .eq("client_id", id)
-    .order("name", { ascending: true });
-
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("*")
-    .order("created_at", { ascending: true });
 
   return (
     <div>
@@ -55,6 +57,7 @@ export default async function ClientDetailPage({
         name={(client as Client).name}
         documents={(documents as Document[]) || []}
         logoUrl={(client as Client).logo_url}
+        location={(client as Client).location}
       />
       <ClientTags
         clientCategories={(client as Client).categories}
