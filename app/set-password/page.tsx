@@ -3,17 +3,19 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { isAdmin } from "@/lib/auth/role";
 
+/**
+ * Anyone who's just completed an invite or password-reset link lands here
+ * to choose a password. Every teammate signs in with email + password
+ * (see lib/auth/role.ts for the separate admin/member *permission*
+ * distinction — that's unrelated to how someone logs in).
+ */
 export default function SetPasswordPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // Only the admin account has a password at all — everyone else signs
-  // in with an emailed link. This guards against any old invite/reset
-  // email that might still point here.
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -21,8 +23,8 @@ export default function SetPasswordPage() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (cancelled) return;
-      if (!isAdmin(user)) {
-        router.replace("/");
+      if (!user) {
+        router.replace("/login");
         return;
       }
       setChecking(false);
@@ -77,7 +79,7 @@ export default function SetPasswordPage() {
             Set your password
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Choose a new password for your admin account
+            Choose a password for your ARK CRM account
           </p>
         </div>
 
