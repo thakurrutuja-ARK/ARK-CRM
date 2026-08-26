@@ -24,6 +24,7 @@ import {
   List,
   ChevronUp,
   ChevronDown,
+  MapPin,
 } from "lucide-react";
 
 const VIEW_MODE_STORAGE_KEY = "ark-crm-clients-view-mode";
@@ -112,6 +113,7 @@ export function ClientsBoard({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [keywordsInput, setKeywordsInput] = useState("");
+  const [locationInput, setLocationInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -388,12 +390,14 @@ export function ClientsBoard({
             name: name.trim(),
             categories: selectedCategories,
             keywords: parseKeywords(keywordsInput),
+            location: locationInput.trim() || null,
           })
           .eq("id", editingClientId)
       : await supabase.from("clients").insert({
           name: name.trim(),
           categories: selectedCategories,
           keywords: parseKeywords(keywordsInput),
+          location: locationInput.trim() || null,
           created_by: user?.id ?? null,
         });
 
@@ -408,6 +412,7 @@ export function ClientsBoard({
     setSelectedCategories([]);
     setNewCategoryInput("");
     setKeywordsInput("");
+    setLocationInput("");
     setShowAdd(false);
     setEditingClientId(null);
     router.refresh();
@@ -420,6 +425,7 @@ export function ClientsBoard({
     setSelectedCategories(client.categories || []);
     setNewCategoryInput("");
     setKeywordsInput((client.keywords || []).join(", "));
+    setLocationInput(client.location || "");
     setShowAdd(true);
   }
 
@@ -431,6 +437,7 @@ export function ClientsBoard({
     setSelectedCategories([]);
     setNewCategoryInput("");
     setKeywordsInput("");
+    setLocationInput("");
     setError(null);
   }
 
@@ -852,6 +859,12 @@ export function ClientsBoard({
                     <p className="text-xs text-slate-400 mt-0.5">
                       {docCount} document{docCount === 1 ? "" : "s"}
                     </p>
+                    {client.location && (
+                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1 truncate">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{client.location}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -909,6 +922,9 @@ export function ClientsBoard({
                 </th>
                 <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   Categories
+                </th>
+                <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Location
                 </th>
                 <th className="px-4 py-3">
                   <button
@@ -992,6 +1008,16 @@ export function ClientsBoard({
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500">
+                      {client.location ? (
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="h-3 w-3 shrink-0 text-slate-300" />
+                          {client.location}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
                       {docCount} document{docCount === 1 ? "" : "s"}
                     </td>
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
@@ -1062,6 +1088,21 @@ export function ClientsBoard({
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
                   placeholder="e.g. Emirates Global Holdings"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="client-location"
+                  className="block text-sm font-medium text-slate-700 mb-1"
+                >
+                  Location
+                </label>
+                <input
+                  id="client-location"
+                  value={locationInput}
+                  onChange={(e) => setLocationInput(e.target.value)}
+                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
+                  placeholder="e.g. Dubai, UAE"
                 />
               </div>
               <div>
