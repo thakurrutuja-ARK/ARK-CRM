@@ -38,6 +38,8 @@ function LoginForm() {
       ? "That link expired or was already used. Sign in below, or use \"Forgot password?\" to get a fresh one."
       : errorParam === "not-company-account"
       ? "Please sign in with your @arkpeoplesolutions.com Google account."
+      : errorParam === "not-invited"
+      ? "That Google account hasn't been added to the team yet. Ask your admin to invite you first."
       : errorParam === "oauth-failed"
       ? "Google sign-in didn't work. Please try again, or sign in with your password below."
       : null
