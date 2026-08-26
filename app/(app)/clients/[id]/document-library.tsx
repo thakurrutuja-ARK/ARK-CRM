@@ -103,6 +103,7 @@ export function DocumentLibrary({
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [deletingFolderId, setDeletingFolderId] = useState<string | null>(
     null
   );
@@ -413,6 +414,17 @@ export function DocumentLibrary({
     e.preventDefault();
     const name = newFolderName.trim();
     if (!name) return;
+
+    // Checked up front so an obvious duplicate never even hits the
+    // database — the unique index below is just the safety net for a
+    // race (e.g. two tabs creating the same folder at once).
+    const nameKey = name.toLowerCase();
+    if (folders.some((f) => f.name.toLowerCase() === nameKey)) {
+      setFolderError("A folder with this name already exists.");
+      return;
+    }
+
+    setFolderError(null);
     setCreatingFolder(true);
     const supabase = createClient();
     const {
@@ -425,11 +437,16 @@ export function DocumentLibrary({
       .single();
     setCreatingFolder(false);
     if (error) {
-      alert(error.message);
+      setFolderError(
+        error.code === "23505"
+          ? "A folder with this name already exists."
+          : error.message
+      );
       return;
     }
     setFolders((f) => [...f, inserted as Folder]);
     setNewFolderName("");
+    setFolderError(null);
     setShowNewFolder(false);
     router.refresh();
   }
@@ -635,7 +652,10 @@ export function DocumentLibrary({
         </div>
         {!currentFolder && (
           <button
-            onClick={() => setShowNewFolder(true)}
+            onClick={() => {
+              setFolderError(null);
+              setShowNewFolder(true);
+            }}
             className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 shadow-sm hover:border-brand-amber hover:text-brand-amber-dark transition-colors"
           >
             <FolderPlus className="h-3.5 w-3.5" />
@@ -825,7 +845,11 @@ export function DocumentLibrary({
       {showNewFolder && (
         <div
           className="fixed inset-0 z-20 bg-brand-ink/50 flex items-center justify-center p-4"
-          onClick={() => !creatingFolder && setShowNewFolder(false)}
+          onClick={() => {
+            if (creatingFolder) return;
+            setShowNewFolder(false);
+            setFolderError(null);
+          }}
         >
           <div
             className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
@@ -835,6 +859,11 @@ export function DocumentLibrary({
               New folder
             </h2>
             <form onSubmit={handleCreateFolder} className="space-y-4">
+              {folderError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">
+                  {folderError}
+                </div>
+              )}
               <div>
                 <label
                   htmlFor="folder-name"
@@ -846,7 +875,10 @@ export function DocumentLibrary({
                   id="folder-name"
                   autoFocus
                   value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onChange={(e) => {
+                    setNewFolderName(e.target.value);
+                    if (folderError) setFolderError(null);
+                  }}
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
                   placeholder="e.g. Contracts"
                 />
@@ -854,7 +886,10 @@ export function DocumentLibrary({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowNewFolder(false)}
+                  onClick={() => {
+                    setShowNewFolder(false);
+                    setFolderError(null);
+                  }}
                   className="rounded-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
                 >
                   Cancel
