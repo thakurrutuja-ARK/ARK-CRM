@@ -198,9 +198,21 @@ export function DocumentLibrary({
         data: { user },
       } = await supabase.auth.getUser();
 
+      // Names already present in the destination folder — checked up
+      // front so an obvious duplicate never even starts uploading.
+      // Names get added to this set as each upload succeeds, so
+      // dropping two files with the same name in one go correctly
+      // blocks the second one too.
+      const existingNames = new Set(
+        documents
+          .filter((d) => (d.folder_id ?? null) === currentFolderId)
+          .map((d) => d.file_name.toLowerCase())
+      );
+
       for (const file of files) {
         const ext = fileExt(file.name);
         const key = `${file.name}-${file.size}-${Date.now()}`;
+        const nameKey = file.name.toLowerCase();
 
         if (!ALLOWED_EXTENSIONS.includes(ext)) {
           setPending((p) => [
@@ -222,6 +234,18 @@ export function DocumentLibrary({
               name: file.name,
               status: "error",
               error: "File is larger than 1GB",
+            },
+          ]);
+          continue;
+        }
+        if (existingNames.has(nameKey)) {
+          setPending((p) => [
+            ...p,
+            {
+              key,
+              name: file.name,
+              status: "error",
+              error: "A file with this name already exists in this folder",
             },
           ]);
           continue;
@@ -266,16 +290,29 @@ export function DocumentLibrary({
           .single();
 
         if (insertError) {
+          // Someone may have uploaded the same name a split-second
+          // before us, or two tabs raced each other — the database's
+          // unique index is the final word beyond our up-front check
+          // above. Clean up the now-orphaned storage blob either way.
+          await supabase.storage.from("client-documents").remove([path]);
           setPending((p) =>
             p.map((u) =>
               u.key === key
-                ? { ...u, status: "error", error: insertError.message }
+                ? {
+                    ...u,
+                    status: "error",
+                    error:
+                      insertError.code === "23505"
+                        ? "A file with this name already exists in this folder"
+                        : insertError.message,
+                  }
                 : u
             )
           );
           continue;
         }
 
+        existingNames.add(nameKey);
         setDocuments((docs) => [inserted as Document, ...docs]);
         setPending((p) => p.filter((u) => u.key !== key));
         indexDocumentAsync((inserted as Document).id);
@@ -283,7 +320,7 @@ export function DocumentLibrary({
 
       router.refresh();
     },
-    [clientId, currentFolderId, router, indexDocumentAsync]
+    [clientId, currentFolderId, router, indexDocumentAsync, documents]
   );
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
@@ -362,6 +399,12 @@ export function DocumentLibrary({
           : docs
       );
       router.refresh();
+    } else {
+      alert(
+        error.code === "23505"
+          ? `A file named "${doc.file_name}" already exists in that folder.`
+          : "Couldn't move the file. Please try again."
+      );
     }
     setMovingId(null);
   }
