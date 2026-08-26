@@ -89,11 +89,12 @@ export async function inviteTeamMember(
     const admin = createAdminClient();
     const siteUrl = await getSiteUrl();
 
-    // Members never set a password — accepting the invite should drop
-    // them straight into the app. (Only the admin account uses a
-    // password; see lib/auth/role.ts and the login page.)
+    // Accepting the invite takes them to /set-password so they can choose
+    // a password once — from then on they sign in with email + password
+    // like everyone else (see lib/auth/role.ts for the separate
+    // admin/member *permission* distinction, which is unrelated to this).
     const { data, error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
-      redirectTo: `${siteUrl}/auth/confirm?next=/`,
+      redirectTo: `${siteUrl}/auth/confirm?next=/set-password`,
     });
 
     if (error) return { error: error.message };

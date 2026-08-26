@@ -231,7 +231,7 @@ export function TeamBoard({
               Invite a teammate
             </h2>
             <p className="text-sm text-slate-500 mb-4">
-              They'll get an email with a link to sign in — no password needed.
+              They'll get an email with a link to set their password.
             </p>
 
             {inviteSent ? (
