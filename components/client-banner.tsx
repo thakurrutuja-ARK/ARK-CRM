@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Document } from "@/types/db";
-import { Camera, X } from "lucide-react";
+import { Camera, MapPin, X } from "lucide-react";
 
 const LOGO_MAX_SIZE = 5 * 1024 * 1024;
 const LOGO_ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
@@ -51,11 +51,13 @@ export function ClientBanner({
   name,
   documents,
   logoUrl,
+  location,
 }: {
   clientId: string;
   name: string;
   documents: Document[];
   logoUrl: string | null;
+  location?: string | null;
 }) {
   const router = useRouter();
   const hasDocs = documents.length > 0;
@@ -278,11 +280,19 @@ export function ClientBanner({
               {name}
             </h1>
             <p
-              className={`text-xs sm:text-sm mt-0.5 ${
+              className={`text-xs sm:text-sm mt-0.5 flex items-center gap-2 ${
                 hasDocs ? "text-white/80" : "text-slate-500"
               }`}
             >
-              {documents.length} document{documents.length === 1 ? "" : "s"}
+              <span>
+                {documents.length} document{documents.length === 1 ? "" : "s"}
+              </span>
+              {location && (
+                <span className="inline-flex items-center gap-1 truncate">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{location}</span>
+                </span>
+              )}
             </p>
           </div>
         </div>
