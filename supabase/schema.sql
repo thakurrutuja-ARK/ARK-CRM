@@ -151,6 +151,18 @@ create index if not exists documents_client_id_idx on public.documents (client_i
 create index if not exists documents_folder_id_idx on public.documents (folder_id);
 create index if not exists documents_content_tsv_idx on public.documents using gin (content_tsv);
 
+-- Prevents two documents with the same name (case-insensitive) from
+-- existing in the same folder for the same client. coalesce()'s the
+-- folder into a fixed sentinel UUID because Postgres treats NULL as
+-- "distinct from every other NULL" — without it, multiple same-named
+-- files at the root (no folder) wouldn't collide.
+create unique index if not exists documents_unique_name_per_folder_idx
+  on public.documents (
+    client_id,
+    coalesce(folder_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    lower(file_name)
+  );
+
 -- ---------------------------------------------------------------------
 -- Row Level Security
 -- This is an internal tool: every signed-in team member (there is no
