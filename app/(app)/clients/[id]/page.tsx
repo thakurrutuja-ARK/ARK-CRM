@@ -57,7 +57,7 @@ export default async function ClientDetailPage({
         name={(client as Client).name}
         documents={(documents as Document[]) || []}
         logoUrl={(client as Client).logo_url}
-        location={(client as Client).location}
+        locations={(client as Client).locations}
       />
       <ClientTags
         clientCategories={(client as Client).categories}
