@@ -113,7 +113,8 @@ export function ClientsBoard({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [keywordsInput, setKeywordsInput] = useState("");
-  const [locationInput, setLocationInput] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
+  const [newLocationInput, setNewLocationInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -181,7 +182,7 @@ export function ClientsBoard({
       if (!q) return true;
       const haystack = [
         c.name,
-        c.location,
+        ...(c.locations || []),
         ...(c.categories || []),
         ...(c.keywords || []),
       ]
@@ -383,6 +384,15 @@ export function ClientsBoard({
     setSaving(true);
     setError(null);
 
+    // Someone may have typed a location but never clicked "Add" or hit
+    // Enter — fold it in here rather than silently losing it on save.
+    const pendingLocation = newLocationInput.trim();
+    const locationsToSave =
+      pendingLocation &&
+      !locations.some((l) => l.toLowerCase() === pendingLocation.toLowerCase())
+        ? [...locations, pendingLocation]
+        : locations;
+
     const supabase = createClient();
     const {
       data: { user },
@@ -395,14 +405,14 @@ export function ClientsBoard({
             name: name.trim(),
             categories: selectedCategories,
             keywords: parseKeywords(keywordsInput),
-            location: locationInput.trim() || null,
+            locations: locationsToSave,
           })
           .eq("id", editingClientId)
       : await supabase.from("clients").insert({
           name: name.trim(),
           categories: selectedCategories,
           keywords: parseKeywords(keywordsInput),
-          location: locationInput.trim() || null,
+          locations: locationsToSave,
           created_by: user?.id ?? null,
         });
 
@@ -417,10 +427,27 @@ export function ClientsBoard({
     setSelectedCategories([]);
     setNewCategoryInput("");
     setKeywordsInput("");
-    setLocationInput("");
+    setLocations([]);
+    setNewLocationInput("");
     setShowAdd(false);
     setEditingClientId(null);
     router.refresh();
+  }
+
+  function addLocation(e?: React.FormEvent) {
+    e?.preventDefault();
+    const trimmed = newLocationInput.trim();
+    if (!trimmed) return;
+    setLocations((cur) =>
+      cur.some((l) => l.toLowerCase() === trimmed.toLowerCase())
+        ? cur
+        : [...cur, trimmed]
+    );
+    setNewLocationInput("");
+  }
+
+  function removeLocation(loc: string) {
+    setLocations((cur) => cur.filter((l) => l !== loc));
   }
 
   function openEditModal(client: Client) {
@@ -430,7 +457,8 @@ export function ClientsBoard({
     setSelectedCategories(client.categories || []);
     setNewCategoryInput("");
     setKeywordsInput((client.keywords || []).join(", "));
-    setLocationInput(client.location || "");
+    setLocations(client.locations || []);
+    setNewLocationInput("");
     setShowAdd(true);
   }
 
@@ -442,7 +470,8 @@ export function ClientsBoard({
     setSelectedCategories([]);
     setNewCategoryInput("");
     setKeywordsInput("");
-    setLocationInput("");
+    setLocations([]);
+    setNewLocationInput("");
     setError(null);
   }
 
@@ -864,10 +893,12 @@ export function ClientsBoard({
                     <p className="text-xs text-slate-400 mt-0.5">
                       {docCount} document{docCount === 1 ? "" : "s"}
                     </p>
-                    {client.location && (
+                    {(client.locations || []).length > 0 && (
                       <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1 truncate">
                         <MapPin className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{client.location}</span>
+                        <span className="truncate">
+                          {(client.locations || []).join(" · ")}
+                        </span>
                       </p>
                     )}
                   </div>
@@ -1013,10 +1044,10 @@ export function ClientsBoard({
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500">
-                      {client.location ? (
+                      {(client.locations || []).length > 0 ? (
                         <span className="inline-flex items-center gap-1">
                           <MapPin className="h-3 w-3 shrink-0 text-slate-300" />
-                          {client.location}
+                          {(client.locations || []).join(", ")}
                         </span>
                       ) : (
                         <span className="text-xs text-slate-300">—</span>
@@ -1100,15 +1131,52 @@ export function ClientsBoard({
                   htmlFor="client-location"
                   className="block text-sm font-medium text-slate-700 mb-1"
                 >
-                  Location
+                  Locations
                 </label>
-                <input
-                  id="client-location"
-                  value={locationInput}
-                  onChange={(e) => setLocationInput(e.target.value)}
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
-                  placeholder="e.g. Dubai, UAE"
-                />
+                <p className="text-xs text-slate-400 mb-2">
+                  Add as many as apply — press Enter or click Add after each
+                  one.
+                </p>
+                {locations.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {locations.map((loc) => (
+                      <span
+                        key={loc}
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-1"
+                      >
+                        {loc}
+                        <button
+                          type="button"
+                          onClick={() => removeLocation(loc)}
+                          title={`Remove ${loc}`}
+                          className="text-slate-400 hover:text-red-500"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    id="client-location"
+                    value={newLocationInput}
+                    onChange={(e) => setNewLocationInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addLocation(e);
+                    }}
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
+                    placeholder="e.g. Dubai, UAE"
+                  />
+                  <button
+                    type="button"
+                    onClick={addLocation}
+                    disabled={!newLocationInput.trim()}
+                    className="shrink-0 rounded-xl bg-slate-100 text-slate-600 text-sm font-semibold px-3 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
