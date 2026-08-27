@@ -51,13 +51,13 @@ export function ClientBanner({
   name,
   documents,
   logoUrl,
-  location,
+  locations,
 }: {
   clientId: string;
   name: string;
   documents: Document[];
   logoUrl: string | null;
-  location?: string | null;
+  locations?: string[] | null;
 }) {
   const router = useRouter();
   const hasDocs = documents.length > 0;
@@ -287,10 +287,10 @@ export function ClientBanner({
               <span>
                 {documents.length} document{documents.length === 1 ? "" : "s"}
               </span>
-              {location && (
+              {locations && locations.length > 0 && (
                 <span className="inline-flex items-center gap-1 truncate">
                   <MapPin className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{location}</span>
+                  <span className="truncate">{locations.join(" · ")}</span>
                 </span>
               )}
             </p>
