@@ -4,6 +4,11 @@ import { Download, X } from "lucide-react";
 
 const INLINE_PREVIEWABLE = ["pdf", "jpg", "jpeg", "png"];
 const IMAGE_TYPES = ["jpg", "jpeg", "png"];
+// Browsers can't render these natively — Microsoft's free Office Online
+// Viewer renders them in an iframe instead, given a URL it can fetch the
+// file from (our signed URLs work fine for this, they're just temporary
+// public links).
+const OFFICE_PREVIEWABLE = ["ppt", "pptx", "doc", "docx"];
 
 export function PreviewModal({
   fileName,
@@ -18,8 +23,12 @@ export function PreviewModal({
   onClose: () => void;
   onDownload: () => void;
 }) {
-  const canPreview = INLINE_PREVIEWABLE.includes(fileType);
+  const isOffice = OFFICE_PREVIEWABLE.includes(fileType);
+  const canPreview = INLINE_PREVIEWABLE.includes(fileType) || isOffice;
   const isImage = IMAGE_TYPES.includes(fileType);
+  const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
+    url
+  )}`;
 
   return (
     <div
@@ -61,7 +70,11 @@ export function PreviewModal({
                 className="max-w-full max-h-full object-contain"
               />
             ) : (
-              <iframe src={url} title={fileName} className="w-full h-full" />
+              <iframe
+                src={isOffice ? officeViewerUrl : url}
+                title={fileName}
+                className="w-full h-full"
+              />
             )
           ) : (
             <div className="text-center px-6">
