@@ -28,6 +28,25 @@ alter table public.clients add column if not exists categories text[] not null d
 alter table public.clients add column if not exists keywords text[] not null default '{}';
 alter table public.clients add column if not exists logo_url text;
 alter table public.clients add column if not exists location text;
+alter table public.clients add column if not exists locations text[] not null default '{}';
+
+-- One-time backfill: clients used to have a single `location` text field.
+-- Copy it into the new `locations` array so nobody's existing location
+-- disappears when this upgrade runs, then drop the old column. Guarded so
+-- it only ever runs once — safe to re-run.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'clients' and column_name = 'location'
+  ) then
+    update public.clients
+    set locations = array[location]
+    where location is not null and coalesce(array_length(locations, 1), 0) = 0;
+
+    alter table public.clients drop column location;
+  end if;
+end $$;
 
 -- One-time backfill: clients used to have a single `category` text field.
 -- Copy it into the new `categories` array so nobody's existing category
