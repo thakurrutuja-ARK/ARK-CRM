@@ -29,6 +29,32 @@ import {
 
 const VIEW_MODE_STORAGE_KEY = "ark-crm-clients-view-mode";
 
+// Quick-pick city lists for the two countries most ARK clients are based
+// in — picking a city here adds "<City>, <Country>" as a location chip,
+// same format as someone typing it by hand in the free-text box below.
+const LOCATION_CITIES: Record<string, string[]> = {
+  UAE: [
+    "Dubai",
+    "Abu Dhabi",
+    "Sharjah",
+    "Ajman",
+    "Ras Al Khaimah",
+    "Fujairah",
+    "Umm Al Quwain",
+  ],
+  KSA: [
+    "Riyadh",
+    "Jeddah",
+    "Dammam",
+    "Mecca",
+    "Medina",
+    "Khobar",
+    "Dhahran",
+    "Taif",
+    "Abha",
+  ],
+};
+
 type SortKey = "name" | "documents" | "added";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -115,6 +141,8 @@ export function ClientsBoard({
   const [keywordsInput, setKeywordsInput] = useState("");
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocationInput, setNewLocationInput] = useState("");
+  const [locationCountry, setLocationCountry] = useState("");
+  const [locationCity, setLocationCity] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -429,20 +457,26 @@ export function ClientsBoard({
     setKeywordsInput("");
     setLocations([]);
     setNewLocationInput("");
+    setLocationCountry("");
+    setLocationCity("");
     setShowAdd(false);
     setEditingClientId(null);
     router.refresh();
   }
 
-  function addLocation(e?: React.FormEvent) {
-    e?.preventDefault();
-    const trimmed = newLocationInput.trim();
+  function addLocationValue(value: string) {
+    const trimmed = value.trim();
     if (!trimmed) return;
     setLocations((cur) =>
       cur.some((l) => l.toLowerCase() === trimmed.toLowerCase())
         ? cur
         : [...cur, trimmed]
     );
+  }
+
+  function addLocation(e?: React.FormEvent) {
+    e?.preventDefault();
+    addLocationValue(newLocationInput);
     setNewLocationInput("");
   }
 
@@ -459,6 +493,8 @@ export function ClientsBoard({
     setKeywordsInput((client.keywords || []).join(", "));
     setLocations(client.locations || []);
     setNewLocationInput("");
+    setLocationCountry("");
+    setLocationCity("");
     setShowAdd(true);
   }
 
@@ -472,6 +508,8 @@ export function ClientsBoard({
     setKeywordsInput("");
     setLocations([]);
     setNewLocationInput("");
+    setLocationCountry("");
+    setLocationCity("");
     setError(null);
   }
 
@@ -1161,6 +1199,44 @@ export function ClientsBoard({
                     ))}
                   </div>
                 )}
+                <div className="flex gap-2 mb-2">
+                  <select
+                    value={locationCountry}
+                    onChange={(e) => {
+                      setLocationCountry(e.target.value);
+                      setLocationCity("");
+                    }}
+                    className="w-1/2 rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
+                  >
+                    <option value="">Country</option>
+                    <option value="UAE">UAE</option>
+                    <option value="KSA">KSA</option>
+                  </select>
+                  <select
+                    value={locationCity}
+                    onChange={(e) => {
+                      const city = e.target.value;
+                      if (city && locationCountry) {
+                        addLocationValue(`${city}, ${locationCountry}`);
+                      }
+                      setLocationCity("");
+                    }}
+                    disabled={!locationCountry}
+                    className="w-1/2 rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent disabled:opacity-50 disabled:bg-slate-50"
+                  >
+                    <option value="">
+                      {locationCountry ? "City" : "Select a country first"}
+                    </option>
+                    {(LOCATION_CITIES[locationCountry] || []).map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-xs text-slate-400 mb-2">
+                  Or type any other location:
+                </p>
                 <div className="flex gap-2">
                   <input
                     id="client-location"
@@ -1170,7 +1246,7 @@ export function ClientsBoard({
                       if (e.key === "Enter") addLocation(e);
                     }}
                     className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
-                    placeholder="e.g. Dubai, UAE"
+                    placeholder="e.g. Doha, Qatar"
                   />
                   <button
                     type="button"
