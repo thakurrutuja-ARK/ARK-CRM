@@ -1389,6 +1389,7 @@ export function ClientsBoard({
         <PreviewModal
           fileName={preview.doc.file_name}
           fileType={preview.doc.file_type || fileExt(preview.doc.file_name)}
+          fileSize={preview.doc.file_size}
           url={preview.url}
           onClose={() => setPreview(null)}
           onDownload={() => handleDownload(preview.doc)}
