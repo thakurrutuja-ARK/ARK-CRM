@@ -179,7 +179,12 @@ export function ClientsBoard({
       if (activeCategory && !(c.categories || []).includes(activeCategory))
         return false;
       if (!q) return true;
-      const haystack = [c.name, ...(c.categories || []), ...(c.keywords || [])]
+      const haystack = [
+        c.name,
+        c.location,
+        ...(c.categories || []),
+        ...(c.keywords || []),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -626,7 +631,7 @@ export function ClientsBoard({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, category, or keyword…"
+            placeholder="Search name, location, category, or keyword…"
             className="w-full rounded-full border border-black/10 bg-white pl-10 pr-4 py-2.5 text-sm text-brand-ink shadow-md focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
           />
         </div>
