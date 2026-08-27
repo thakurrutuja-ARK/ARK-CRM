@@ -9,22 +9,32 @@ const IMAGE_TYPES = ["jpg", "jpeg", "png"];
 // file from (our signed URLs work fine for this, they're just temporary
 // public links).
 const OFFICE_PREVIEWABLE = ["ppt", "pptx", "doc", "docx"];
+// Microsoft's free Office Online Viewer refuses to open anything past this
+// size (it shows its own "File too large" error page inside the iframe) —
+// checking up front lets us show our own message instead of that.
+const OFFICE_VIEWER_MAX_BYTES = 10 * 1024 * 1024; // 10MB
 
 export function PreviewModal({
   fileName,
   fileType,
+  fileSize,
   url,
   onClose,
   onDownload,
 }: {
   fileName: string;
   fileType: string;
+  fileSize?: number | null;
   url: string;
   onClose: () => void;
   onDownload: () => void;
 }) {
   const isOffice = OFFICE_PREVIEWABLE.includes(fileType);
-  const canPreview = INLINE_PREVIEWABLE.includes(fileType) || isOffice;
+  const tooLargeForOfficeViewer =
+    isOffice && !!fileSize && fileSize > OFFICE_VIEWER_MAX_BYTES;
+  const canPreview =
+    (INLINE_PREVIEWABLE.includes(fileType) || isOffice) &&
+    !tooLargeForOfficeViewer;
   const isImage = IMAGE_TYPES.includes(fileType);
   const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
     url
@@ -79,7 +89,9 @@ export function PreviewModal({
           ) : (
             <div className="text-center px-6">
               <p className="text-sm text-slate-600">
-                Preview isn&apos;t available for this file type.
+                {tooLargeForOfficeViewer
+                  ? "This file is too large to preview online (the viewer supports files up to 10MB)."
+                  : "Preview isn't available for this file type."}
               </p>
               <button
                 onClick={onDownload}
