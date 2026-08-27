@@ -853,11 +853,11 @@ export function ClientsBoard({
                 className="absolute inset-x-0 top-0 h-1"
                 style={{ backgroundColor: accentStyle.dotHex }}
               />
-              <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+              <div className="absolute top-4 right-4 flex items-center gap-1">
                 <button
                   onClick={() => openEditModal(client)}
                   title="Edit client"
-                  className="h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-brand-amber-dark hover:bg-brand-amber/10"
+                  className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 bg-white/80 ring-1 ring-black/5 hover:text-brand-amber-dark hover:bg-brand-amber/10"
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
@@ -866,7 +866,7 @@ export function ClientsBoard({
                     onClick={() => handleDelete(client.id)}
                     disabled={deletingId === client.id}
                     title="Delete client"
-                    className="h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50"
+                    className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 bg-white/80 ring-1 ring-black/5 hover:text-red-500 hover:bg-red-50"
                   >
                     {deletingId === client.id ? "…" : <X className="h-3.5 w-3.5" />}
                   </button>
@@ -1060,11 +1060,11 @@ export function ClientsBoard({
                       {formatDate(client.created_at)}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => openEditModal(client)}
                           title="Edit client"
-                          className="h-7 w-7 flex items-center justify-center rounded-full text-slate-300 hover:text-brand-amber-dark hover:bg-brand-amber/10"
+                          className="h-7 w-7 flex items-center justify-center rounded-full text-slate-400 hover:text-brand-amber-dark hover:bg-brand-amber/10"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -1073,7 +1073,7 @@ export function ClientsBoard({
                             onClick={() => handleDelete(client.id)}
                             disabled={deletingId === client.id}
                             title="Delete client"
-                            className="h-7 w-7 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50"
+                            className="h-7 w-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50"
                           >
                             {deletingId === client.id ? (
                               "…"
