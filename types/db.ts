@@ -5,7 +5,7 @@ export type Client = {
   categories: string[] | null;
   keywords: string[] | null;
   logo_url: string | null;
-  location: string | null;
+  locations: string[] | null;
   created_at: string;
   created_by: string | null;
 };
