@@ -853,27 +853,11 @@ export function ClientsBoard({
                 className="absolute inset-x-0 top-0 h-1"
                 style={{ backgroundColor: accentStyle.dotHex }}
               />
-              <div className="absolute top-4 right-4 flex items-center gap-1">
-                <button
-                  onClick={() => openEditModal(client)}
-                  title="Edit client"
-                  className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 bg-white/80 ring-1 ring-black/5 hover:text-brand-amber-dark hover:bg-brand-amber/10"
+              <div className="flex items-start justify-between gap-2">
+                <Link
+                  href={`/clients/${client.id}`}
+                  className="flex items-center gap-3 min-w-0 flex-1"
                 >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                {isAdmin && (
-                  <button
-                    onClick={() => handleDelete(client.id)}
-                    disabled={deletingId === client.id}
-                    title="Delete client"
-                    className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 bg-white/80 ring-1 ring-black/5 hover:text-red-500 hover:bg-red-50"
-                  >
-                    {deletingId === client.id ? "…" : <X className="h-3.5 w-3.5" />}
-                  </button>
-                )}
-              </div>
-              <Link href={`/clients/${client.id}`} className="block">
-                <div className="flex items-center gap-3">
                   <div className="h-12 w-12 shrink-0 rounded-full bg-brand-amber/15 text-brand-amber-dark font-display font-extrabold text-sm flex items-center justify-center ring-1 ring-black/5 overflow-hidden">
                     {client.logo_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -887,7 +871,7 @@ export function ClientsBoard({
                     )}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-[15px] text-brand-ink tracking-tight truncate pr-4">
+                    <p className="font-semibold text-[15px] text-brand-ink tracking-tight truncate">
                       {client.name}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -902,8 +886,28 @@ export function ClientsBoard({
                       </p>
                     )}
                   </div>
+                </Link>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => openEditModal(client)}
+                    title="Edit client"
+                    className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 hover:text-brand-amber-dark hover:bg-brand-amber/10"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDelete(client.id)}
+                      disabled={deletingId === client.id}
+                      title="Delete client"
+                      className="h-6 w-6 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50"
+                    >
+                      {deletingId === client.id ? "…" : <X className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                 </div>
-
+              </div>
+              <Link href={`/clients/${client.id}`} className="block">
                 {clientCats.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1 mt-3.5">
                     {clientCats.map((cat) => {
