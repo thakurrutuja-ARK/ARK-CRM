@@ -27,6 +27,7 @@ alter table public.clients add column if not exists category text;
 alter table public.clients add column if not exists categories text[] not null default '{}';
 alter table public.clients add column if not exists keywords text[] not null default '{}';
 alter table public.clients add column if not exists logo_url text;
+alter table public.clients add column if not exists location text;
 
 -- One-time backfill: clients used to have a single `category` text field.
 -- Copy it into the new `categories` array so nobody's existing category
