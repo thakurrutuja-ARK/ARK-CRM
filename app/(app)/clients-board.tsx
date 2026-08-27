@@ -140,7 +140,6 @@ export function ClientsBoard({
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [keywordsInput, setKeywordsInput] = useState("");
   const [locations, setLocations] = useState<string[]>([]);
-  const [newLocationInput, setNewLocationInput] = useState("");
   const [locationCountry, setLocationCountry] = useState("");
   const [locationCity, setLocationCity] = useState("");
   const [saving, setSaving] = useState(false);
@@ -412,14 +411,7 @@ export function ClientsBoard({
     setSaving(true);
     setError(null);
 
-    // Someone may have typed a location but never clicked "Add" or hit
-    // Enter — fold it in here rather than silently losing it on save.
-    const pendingLocation = newLocationInput.trim();
-    const locationsToSave =
-      pendingLocation &&
-      !locations.some((l) => l.toLowerCase() === pendingLocation.toLowerCase())
-        ? [...locations, pendingLocation]
-        : locations;
+    const locationsToSave = locations;
 
     const supabase = createClient();
     const {
@@ -456,7 +448,6 @@ export function ClientsBoard({
     setNewCategoryInput("");
     setKeywordsInput("");
     setLocations([]);
-    setNewLocationInput("");
     setLocationCountry("");
     setLocationCity("");
     setShowAdd(false);
@@ -474,12 +465,6 @@ export function ClientsBoard({
     );
   }
 
-  function addLocation(e?: React.FormEvent) {
-    e?.preventDefault();
-    addLocationValue(newLocationInput);
-    setNewLocationInput("");
-  }
-
   function removeLocation(loc: string) {
     setLocations((cur) => cur.filter((l) => l !== loc));
   }
@@ -492,7 +477,6 @@ export function ClientsBoard({
     setNewCategoryInput("");
     setKeywordsInput((client.keywords || []).join(", "));
     setLocations(client.locations || []);
-    setNewLocationInput("");
     setLocationCountry("");
     setLocationCity("");
     setShowAdd(true);
@@ -507,7 +491,6 @@ export function ClientsBoard({
     setNewCategoryInput("");
     setKeywordsInput("");
     setLocations([]);
-    setNewLocationInput("");
     setLocationCountry("");
     setLocationCity("");
     setError(null);
@@ -1169,15 +1152,11 @@ export function ClientsBoard({
                 />
               </div>
               <div>
-                <label
-                  htmlFor="client-location"
-                  className="block text-sm font-medium text-slate-700 mb-1"
-                >
+                <label className="block text-sm font-medium text-slate-700 mb-1">
                   Locations
                 </label>
                 <p className="text-xs text-slate-400 mb-2">
-                  Add as many as apply — press Enter or click Add after each
-                  one.
+                  Add as many as apply — pick a country, then a city.
                 </p>
                 {locations.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-2">
@@ -1233,29 +1212,6 @@ export function ClientsBoard({
                       </option>
                     ))}
                   </select>
-                </div>
-                <p className="text-xs text-slate-400 mb-2">
-                  Or type any other location:
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    id="client-location"
-                    value={newLocationInput}
-                    onChange={(e) => setNewLocationInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addLocation(e);
-                    }}
-                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm text-brand-ink focus:outline-none focus:ring-2 focus:ring-brand-amber focus:border-transparent"
-                    placeholder="e.g. Doha, Qatar"
-                  />
-                  <button
-                    type="button"
-                    onClick={addLocation}
-                    disabled={!newLocationInput.trim()}
-                    className="shrink-0 rounded-xl bg-slate-100 text-slate-600 text-sm font-semibold px-3 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                  >
-                    Add
-                  </button>
                 </div>
               </div>
               <div>
