@@ -22,7 +22,7 @@ export default async function AppLayout({
               <img src="/ark-logo.png" alt="ARK People Solutions" className="h-8 w-auto" />
               <span className="hidden sm:block h-6 w-px bg-black/10" />
               <span className="hidden sm:block font-semibold text-xs tracking-[0.18em] text-brand-ink uppercase">
-                Internal CRM
+                Resource Space
               </span>
             </Link>
             <nav className="hidden sm:flex items-center gap-1">
