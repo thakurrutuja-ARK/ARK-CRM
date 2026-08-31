@@ -76,7 +76,7 @@ function ConfirmContent() {
             className="h-12 w-auto mx-auto mb-4"
           />
           <h1 className="font-display text-2xl font-extrabold text-brand-ink tracking-tight">
-            Internal CRM
+            Resource Space
           </h1>
           <p className="text-sm text-slate-500 mt-1">One more step</p>
         </div>
