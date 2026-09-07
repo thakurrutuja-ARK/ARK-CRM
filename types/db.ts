@@ -27,6 +27,7 @@ export type Document = {
 export type Folder = {
   id: string;
   client_id: string;
+  parent_folder_id: string | null;
   name: string;
   created_at: string;
   created_by: string | null;
