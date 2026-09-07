@@ -96,22 +96,40 @@ values
 on conflict (name) do nothing;
 
 -- ---------------------------------------------------------------------
--- Folders (flat — one level, used to organize a client's documents)
+-- Folders (nested — a folder can contain other folders to any depth,
+-- used to organize a client's documents)
 -- ---------------------------------------------------------------------
 create table if not exists public.folders (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients (id) on delete cascade,
+  parent_folder_id uuid references public.folders (id) on delete cascade,
   name text not null,
   created_at timestamptz not null default now(),
   created_by uuid references auth.users (id) on delete set null
 );
 
 create index if not exists folders_client_id_idx on public.folders (client_id);
+create index if not exists folders_parent_folder_id_idx on public.folders (parent_folder_id);
+
+-- Safe to re-run: adds subfolder support to a folders table created
+-- before nesting existed, without touching existing rows (every
+-- existing folder simply has a null parent, i.e. it's top-level).
+alter table public.folders add column if not exists parent_folder_id uuid references public.folders (id) on delete cascade;
+create index if not exists folders_parent_folder_id_idx on public.folders (parent_folder_id);
 
 -- Prevents two folders with the same name (case-insensitive) from
--- existing under the same client.
-create unique index if not exists folders_unique_name_per_client_idx
-  on public.folders (client_id, lower(name));
+-- existing as siblings — same client AND same parent folder. A fixed
+-- sentinel UUID stands in for "top level" so two top-level folders
+-- (parent_folder_id is null for both) still collide on name the way
+-- they used to — Postgres unique indexes normally treat NULL as
+-- distinct from NULL, which would otherwise let duplicates through.
+drop index if exists public.folders_unique_name_per_client_idx;
+create unique index if not exists folders_unique_name_per_parent_idx
+  on public.folders (
+    client_id,
+    coalesce(parent_folder_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    lower(name)
+  );
 
 -- Every new client automatically gets these three folders, so nobody has
 -- to remember to create them by hand. Runs as the client row is inserted
@@ -146,7 +164,7 @@ create trigger clients_create_default_folders
 create table if not exists public.documents (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients (id) on delete cascade,
-  folder_id uuid references public.folders (id) on delete set null,
+  folder_id uuid references public.folders (id) on delete cascade,
   file_name text not null,
   storage_path text not null unique,
   file_type text,
@@ -158,6 +176,33 @@ create table if not exists public.documents (
 -- Safe to re-run: adds folder support to a documents table created
 -- before folders existed, without touching existing rows.
 alter table public.documents add column if not exists folder_id uuid references public.folders (id) on delete set null;
+
+-- Safe to re-run: switches the folder_id foreign key from "on delete set
+-- null" to "on delete cascade". Deleting a folder now deletes the
+-- documents inside it (and inside any of its subfolders, since folders
+-- themselves cascade too) rather than orphaning them into "no folder" —
+-- the app warns with a count before doing this. Looks up the actual
+-- constraint name rather than assuming it, since it may have been
+-- created with a different name depending on when this database was
+-- first set up.
+do $$
+declare
+  cname text;
+begin
+  select conname into cname
+  from pg_constraint
+  where conrelid = 'public.documents'::regclass
+    and confrelid = 'public.folders'::regclass
+    and contype = 'f';
+  if cname is not null then
+    execute format('alter table public.documents drop constraint %I', cname);
+  end if;
+  alter table public.documents
+    add constraint documents_folder_id_fkey
+    foreign key (folder_id) references public.folders (id) on delete cascade;
+exception when duplicate_object then
+  null;
+end $$;
 
 -- Safe to re-run: adds full-text search support to a documents table
 -- created before it existed. content_text holds the plain text pulled out
