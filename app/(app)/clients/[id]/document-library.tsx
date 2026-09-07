@@ -71,6 +71,55 @@ function toPrefixTsQuery(input: string) {
     .join(" & ");
 }
 
+// Returns the chain of folders from the top level down to (and
+// including) `folderId` — used to render the multi-level breadcrumb.
+function folderPath(folders: Folder[], folderId: string | null): Folder[] {
+  const path: Folder[] = [];
+  let current = folders.find((f) => f.id === folderId) || null;
+  while (current) {
+    path.unshift(current);
+    const parentId: string | null = current.parent_folder_id;
+    current = parentId ? folders.find((f) => f.id === parentId) || null : null;
+  }
+  return path;
+}
+
+// Returns folderId plus every folder nested underneath it, at any depth
+// — used when deleting a folder, so everything that goes with it (its
+// whole subtree) is accounted for up front.
+function folderAndDescendantIds(folders: Folder[], folderId: string): Set<string> {
+  const ids = new Set<string>([folderId]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const f of folders) {
+      if (f.parent_folder_id && ids.has(f.parent_folder_id) && !ids.has(f.id)) {
+        ids.add(f.id);
+        added = true;
+      }
+    }
+  }
+  return ids;
+}
+
+// Flattens the folder tree into display order — parents immediately
+// followed by their children, siblings alphabetical — with a depth for
+// indentation. Used by the "move to folder" menu so the whole hierarchy
+// is visible (and navigable) in one flat list.
+function orderedFolderTree(
+  folders: Folder[],
+  parentId: string | null = null,
+  depth = 0
+): { folder: Folder; depth: number }[] {
+  const children = folders
+    .filter((f) => (f.parent_folder_id ?? null) === parentId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return children.flatMap((folder) => [
+    { folder, depth },
+    ...orderedFolderTree(folders, folder.id, depth + 1),
+  ]);
+}
+
 type PendingUpload = {
   key: string;
   name: string;
@@ -119,6 +168,10 @@ export function DocumentLibrary({
   const moveMenuRef = useRef<HTMLDivElement>(null);
 
   const currentFolder = folders.find((f) => f.id === currentFolderId) || null;
+  const breadcrumb = folderPath(folders, currentFolderId);
+  const childFolders = folders
+    .filter((f) => (f.parent_folder_id ?? null) === currentFolderId)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const visibleDocs = documents.filter(
     (d) => (d.folder_id ?? null) === currentFolderId
   );
@@ -417,10 +470,18 @@ export function DocumentLibrary({
 
     // Checked up front so an obvious duplicate never even hits the
     // database — the unique index below is just the safety net for a
-    // race (e.g. two tabs creating the same folder at once).
+    // race (e.g. two tabs creating the same folder at once). Only
+    // siblings (folders under the same parent) need to be distinct —
+    // "Contracts" can exist both at the top level and inside "Legal".
     const nameKey = name.toLowerCase();
-    if (folders.some((f) => f.name.toLowerCase() === nameKey)) {
-      setFolderError("A folder with this name already exists.");
+    if (
+      folders.some(
+        (f) =>
+          (f.parent_folder_id ?? null) === currentFolderId &&
+          f.name.toLowerCase() === nameKey
+      )
+    ) {
+      setFolderError("A folder with this name already exists here.");
       return;
     }
 
@@ -432,14 +493,19 @@ export function DocumentLibrary({
     } = await supabase.auth.getUser();
     const { data: inserted, error } = await supabase
       .from("folders")
-      .insert({ client_id: clientId, name, created_by: user?.id ?? null })
+      .insert({
+        client_id: clientId,
+        parent_folder_id: currentFolderId,
+        name,
+        created_by: user?.id ?? null,
+      })
       .select()
       .single();
     setCreatingFolder(false);
     if (error) {
       setFolderError(
         error.code === "23505"
-          ? "A folder with this name already exists."
+          ? "A folder with this name already exists here."
           : error.message
       );
       return;
@@ -452,26 +518,54 @@ export function DocumentLibrary({
   }
 
   async function handleDeleteFolder(folder: Folder) {
-    if (
-      !confirm(
-        `Delete the "${folder.name}" folder? Documents inside will move back to All documents.`
-      )
-    )
-      return;
+    // Deleting a folder deletes everything nested inside it — its
+    // subfolders (at any depth) and all of their documents — so this
+    // is worked out up front to show an accurate warning before doing
+    // anything irreversible.
+    const affectedFolderIds = folderAndDescendantIds(folders, folder.id);
+    const affectedSubfolderCount = affectedFolderIds.size - 1;
+    const affectedDocs = documents.filter(
+      (d) => d.folder_id && affectedFolderIds.has(d.folder_id)
+    );
+
+    const parts: string[] = [];
+    if (affectedSubfolderCount > 0) {
+      parts.push(
+        `${affectedSubfolderCount} subfolder${affectedSubfolderCount === 1 ? "" : "s"}`
+      );
+    }
+    if (affectedDocs.length > 0) {
+      parts.push(
+        `${affectedDocs.length} document${affectedDocs.length === 1 ? "" : "s"}`
+      );
+    }
+    const warning =
+      parts.length > 0
+        ? ` This deletes ${parts.join(" and ")} inside it too — this can't be undone.`
+        : " This can't be undone.";
+
+    if (!confirm(`Delete the "${folder.name}" folder?${warning}`)) return;
+
     setDeletingFolderId(folder.id);
     const supabase = createClient();
-    await supabase
-      .from("documents")
-      .update({ folder_id: null })
-      .eq("folder_id", folder.id);
+
+    // Storage objects aren't linked by foreign key, so they're removed
+    // explicitly. The folder/document database rows cascade-delete
+    // together below once the top folder is deleted.
+    if (affectedDocs.length > 0) {
+      await supabase.storage
+        .from("client-documents")
+        .remove(affectedDocs.map((d) => d.storage_path));
+    }
     await supabase.from("folders").delete().eq("id", folder.id);
+
     setDocuments((docs) =>
-      docs.map((d) =>
-        d.folder_id === folder.id ? { ...d, folder_id: null } : d
-      )
+      docs.filter((d) => !(d.folder_id && affectedFolderIds.has(d.folder_id)))
     );
-    setFolders((f) => f.filter((fo) => fo.id !== folder.id));
-    if (currentFolderId === folder.id) setCurrentFolderId(null);
+    setFolders((f) => f.filter((fo) => !affectedFolderIds.has(fo.id)));
+    if (currentFolderId && affectedFolderIds.has(currentFolderId)) {
+      setCurrentFolderId(null);
+    }
     setDeletingFolderId(null);
     router.refresh();
   }
@@ -514,6 +608,10 @@ export function DocumentLibrary({
 
   function docCountInFolder(folderId: string) {
     return documents.filter((d) => (d.folder_id ?? null) === folderId).length;
+  }
+
+  function subfolderCountInFolder(folderId: string) {
+    return folders.filter((f) => (f.parent_folder_id ?? null) === folderId).length;
   }
 
   function renderDocRow(doc: Document, opts?: { showFolder?: boolean }) {
@@ -561,7 +659,7 @@ export function DocumentLibrary({
           {moveMenuFor === doc.id && (
             <div
               ref={moveMenuRef}
-              className="absolute right-0 top-full mt-1 z-10 w-48 rounded-xl bg-white p-1.5 shadow-lg ring-1 ring-black/10"
+              className="absolute right-0 top-full mt-1 z-10 w-64 max-h-72 overflow-y-auto rounded-xl bg-white p-1.5 shadow-lg ring-1 ring-black/10"
             >
               <button
                 onClick={() => handleMove(doc, null)}
@@ -573,17 +671,24 @@ export function DocumentLibrary({
               {folders.length > 0 && (
                 <div className="my-1 border-t border-black/5" />
               )}
-              {folders.map((folder) => (
-                <button
-                  key={folder.id}
-                  onClick={() => handleMove(doc, folder.id)}
-                  disabled={doc.folder_id === folder.id}
-                  className="w-full flex items-center gap-2 text-left rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                >
-                  <FolderIcon className="h-3.5 w-3.5 shrink-0 text-brand-amber-dark" />
-                  <span className="truncate">{folder.name}</span>
-                </button>
-              ))}
+              {orderedFolderTree(folders).map(({ folder, depth }) => {
+                const path = folderPath(folders, folder.id)
+                  .map((f) => f.name)
+                  .join(" / ");
+                return (
+                  <button
+                    key={folder.id}
+                    onClick={() => handleMove(doc, folder.id)}
+                    disabled={doc.folder_id === folder.id}
+                    title={path}
+                    style={{ paddingLeft: `${0.75 + depth * 1}rem` }}
+                    className="w-full flex items-center gap-2 text-left rounded-lg py-2 pr-3 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                  >
+                    <FolderIcon className="h-3.5 w-3.5 shrink-0 text-brand-amber-dark" />
+                    <span className="truncate">{folder.name}</span>
+                  </button>
+                );
+              })}
               {folders.length === 0 && (
                 <p className="px-3 py-2 text-xs text-slate-400">
                   Create a folder first.
@@ -630,10 +735,10 @@ export function DocumentLibrary({
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-1.5 text-sm">
+        <div className="flex items-center gap-1.5 text-sm flex-wrap min-w-0">
           <button
             onClick={() => setCurrentFolderId(null)}
-            className={`font-medium transition-colors ${
+            className={`font-medium transition-colors shrink-0 ${
               currentFolder
                 ? "text-slate-500 hover:text-brand-amber-dark"
                 : "text-brand-ink font-semibold"
@@ -641,27 +746,37 @@ export function DocumentLibrary({
           >
             All documents
           </button>
-          {currentFolder && (
-            <>
-              <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-              <span className="font-semibold text-brand-ink">
-                {currentFolder.name}
+          {breadcrumb.map((folder, i) => {
+            const isLast = i === breadcrumb.length - 1;
+            return (
+              <span key={folder.id} className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                {isLast ? (
+                  <span className="font-semibold text-brand-ink truncate">
+                    {folder.name}
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    className="font-medium text-slate-500 hover:text-brand-amber-dark transition-colors truncate"
+                  >
+                    {folder.name}
+                  </button>
+                )}
               </span>
-            </>
-          )}
+            );
+          })}
         </div>
-        {!currentFolder && (
-          <button
-            onClick={() => {
-              setFolderError(null);
-              setShowNewFolder(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 shadow-sm hover:border-brand-amber hover:text-brand-amber-dark transition-colors"
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-            New folder
-          </button>
-        )}
+        <button
+          onClick={() => {
+            setFolderError(null);
+            setShowNewFolder(true);
+          }}
+          className="inline-flex items-center gap-1.5 shrink-0 rounded-full border border-black/10 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 shadow-sm hover:border-brand-amber hover:text-brand-amber-dark transition-colors"
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          New folder
+        </button>
       </div>
 
       <div className="relative mb-4">
@@ -786,41 +901,47 @@ export function DocumentLibrary({
         </div>
       ) : (
         <>
-          {!currentFolder && folders.length > 0 && (
+          {childFolders.length > 0 && (
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {folders.map((folder) => (
-                <div
-                  key={folder.id}
-                  onClick={() => setCurrentFolderId(folder.id)}
-                  className="group relative cursor-pointer rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/[0.06] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder);
-                    }}
-                    disabled={deletingFolderId === folder.id}
-                    title="Delete folder"
-                    className="absolute top-3 right-3 h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+              {childFolders.map((folder) => {
+                const subfolderCount = subfolderCountInFolder(folder.id);
+                const docCount = docCountInFolder(folder.id);
+                return (
+                  <div
+                    key={folder.id}
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    className="group relative cursor-pointer rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/[0.06] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
                   >
-                    {deletingFolderId === folder.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <X className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-amber/15 text-brand-amber-dark">
-                    <FolderIcon className="h-5 w-5" />
-                  </span>
-                  <p className="mt-3 text-sm font-semibold text-brand-ink truncate pr-4">
-                    {folder.name}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {docCountInFolder(folder.id)} document
-                    {docCountInFolder(folder.id) === 1 ? "" : "s"}
-                  </p>
-                </div>
-              ))}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFolder(folder);
+                      }}
+                      disabled={deletingFolderId === folder.id}
+                      title="Delete folder"
+                      className="absolute top-3 right-3 h-6 w-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      {deletingFolderId === folder.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-amber/15 text-brand-amber-dark">
+                      <FolderIcon className="h-5 w-5" />
+                    </span>
+                    <p className="mt-3 text-sm font-semibold text-brand-ink truncate pr-4">
+                      {folder.name}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {subfolderCount > 0
+                        ? `${subfolderCount} folder${subfolderCount === 1 ? "" : "s"} · `
+                        : ""}
+                      {docCount} document{docCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -829,7 +950,7 @@ export function DocumentLibrary({
               <p className="text-sm text-slate-500 text-center py-10">
                 {currentFolder
                   ? "No documents in this folder yet."
-                  : folders.length > 0
+                  : childFolders.length > 0
                   ? "No unfiled documents."
                   : "No documents uploaded yet."}
               </p>
@@ -858,6 +979,11 @@ export function DocumentLibrary({
             <h2 className="font-display text-lg font-bold text-brand-ink mb-4">
               New folder
             </h2>
+            <p className="-mt-3 mb-4 text-xs text-slate-400">
+              {currentFolder
+                ? `Creating a subfolder inside "${currentFolder.name}"`
+                : "Creating a top-level folder"}
+            </p>
             <form onSubmit={handleCreateFolder} className="space-y-4">
               {folderError && (
                 <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">
