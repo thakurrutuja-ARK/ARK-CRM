@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { LogoutButton } from "./logout-button";
+import { Chatbot } from "@/components/chatbot";
 
 export default async function AppLayout({
   children,
@@ -53,6 +54,7 @@ export default async function AppLayout({
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-10">
         {children}
       </main>
+      <Chatbot />
     </div>
   );
 }
