@@ -70,10 +70,25 @@ export async function POST(request: NextRequest) {
   // name or text, which they usually don't. To handle "about a specific
   // client" questions properly, first check whether the question names an
   // existing client and, if so, scope the search to that client too.
+  //
+  // A follow-up question in the same chat ("give me a detailed brief")
+  // usually doesn't repeat the client's name — it relies on the earlier
+  // turn for that context, the way a person would. So if the current
+  // question doesn't name a client, fall back to the most recent turn in
+  // the conversation history that did.
   const { data: clientRows } = await supabase.from("clients").select("id, name");
-  const mentionedClient = (clientRows || []).find((c) =>
-    c.name && question.toLowerCase().includes(c.name.toLowerCase())
-  );
+  const findClientIn = (text: string) =>
+    (clientRows || []).find((c) => c.name && text.toLowerCase().includes(c.name.toLowerCase()));
+
+  let mentionedClient = findClientIn(question);
+  if (!mentionedClient) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const prior = history[i];
+      if (!prior?.content) continue;
+      mentionedClient = findClientIn(prior.content);
+      if (mentionedClient) break;
+    }
+  }
 
   const selectCols = "file_name, content_text, clients ( name ), folders ( name )";
   let docs: DocMatch[] = [];
