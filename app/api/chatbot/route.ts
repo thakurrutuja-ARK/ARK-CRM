@@ -63,24 +63,81 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "question is required" }, { status: 400 });
   }
 
-  // Pull the strongest-matching documents across every client, using the
-  // same content_tsv index the document search box already relies on —
-  // "websearch" mode understands a natural-language question, not just
-  // keywords.
-  const { data: matches, error: searchError } = await supabase
-    .from("documents")
-    .select("file_name, content_text, clients ( name ), folders ( name )")
-    .textSearch("content_tsv", question, { type: "websearch", config: "english" })
-    .limit(MAX_DOCS);
+  // The full-text index only covers each document's file name + extracted
+  // content — it has no idea which client a document belongs to. So a
+  // question like "what documents do we have for Al Barari?" would only
+  // match if the words "Al Barari" happened to appear inside a file's
+  // name or text, which they usually don't. To handle "about a specific
+  // client" questions properly, first check whether the question names an
+  // existing client and, if so, scope the search to that client too.
+  const { data: clientRows } = await supabase.from("clients").select("id, name");
+  const mentionedClient = (clientRows || []).find((c) =>
+    c.name && question.toLowerCase().includes(c.name.toLowerCase())
+  );
 
-  if (searchError) {
-    return NextResponse.json(
-      { error: "Search failed: " + searchError.message },
-      { status: 500 }
-    );
+  const selectCols = "file_name, content_text, clients ( name ), folders ( name )";
+  let docs: DocMatch[] = [];
+
+  if (mentionedClient) {
+    // Try a content match scoped to that client first (handles "does
+    // Al Barari have a signed contract?").
+    const { data: scopedMatches, error: scopedError } = await supabase
+      .from("documents")
+      .select(selectCols)
+      .eq("client_id", mentionedClient.id)
+      .textSearch("content_tsv", question, { type: "websearch", config: "english" })
+      .limit(MAX_DOCS);
+
+    if (scopedError) {
+      return NextResponse.json(
+        { error: "Search failed: " + scopedError.message },
+        { status: 500 }
+      );
+    }
+
+    docs = (scopedMatches || []) as DocMatch[];
+
+    // A broad listing question ("what documents do we have for X?") has
+    // no real keywords to match on, so the content search above often
+    // comes back empty even though the client has documents. Fall back
+    // to just listing that client's documents.
+    if (docs.length === 0) {
+      const { data: allClientDocs, error: listError } = await supabase
+        .from("documents")
+        .select(selectCols)
+        .eq("client_id", mentionedClient.id)
+        .order("created_at", { ascending: false })
+        .limit(MAX_DOCS);
+
+      if (listError) {
+        return NextResponse.json(
+          { error: "Search failed: " + listError.message },
+          { status: 500 }
+        );
+      }
+
+      docs = (allClientDocs || []) as DocMatch[];
+    }
+  } else {
+    // No specific client named — search across every client, using the
+    // same content_tsv index the document search box already relies on —
+    // "websearch" mode understands a natural-language question, not just
+    // keywords.
+    const { data: matches, error: searchError } = await supabase
+      .from("documents")
+      .select(selectCols)
+      .textSearch("content_tsv", question, { type: "websearch", config: "english" })
+      .limit(MAX_DOCS);
+
+    if (searchError) {
+      return NextResponse.json(
+        { error: "Search failed: " + searchError.message },
+        { status: 500 }
+      );
+    }
+
+    docs = (matches || []) as DocMatch[];
   }
-
-  const docs = (matches || []) as DocMatch[];
 
   const context =
     docs.length === 0
