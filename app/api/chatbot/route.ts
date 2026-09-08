@@ -7,7 +7,7 @@ export const maxDuration = 60;
 // Google's Gemini API has a genuinely free tier (generous daily quota, no
 // billing required to start) — that's why this uses Gemini rather than a
 // paid model provider.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const MAX_DOCS = 8;
 const MAX_EXCERPT_CHARS = 3000;
 const MAX_HISTORY_MESSAGES = 6;
