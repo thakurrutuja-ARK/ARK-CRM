@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+// Google's Gemini API has a genuinely free tier (generous daily quota, no
+// billing required to start) — that's why this uses Gemini rather than a
+// paid model provider.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const MAX_DOCS = 8;
 const MAX_EXCERPT_CHARS = 3000;
 const MAX_HISTORY_MESSAGES = 6;
@@ -27,7 +30,7 @@ function relatedName(rel: DocMatch["clients"]): string {
 /**
  * Answers a question about anything in the CRM's document library — any
  * client, any folder, any file — by full-text searching every document's
- * extracted content, handing the best matches to Claude as grounding
+ * extracted content, handing the best matches to Gemini as grounding
  * context, and asking it to answer strictly from that context (and to
  * flag gaps rather than guess).
  */
@@ -40,12 +43,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
       {
         answer:
-          "The chatbot isn't set up yet — an admin needs to add an ANTHROPIC_API_KEY environment variable before I can answer questions.",
+          "The chatbot isn't set up yet — an admin needs to add a GEMINI_API_KEY environment variable before I can answer questions.",
         configured: false,
       },
       { status: 200 }
@@ -106,27 +109,32 @@ Keep answers concise and conversational — this is a chat panel, not a report.
 DOCUMENT EXCERPTS:
 ${context}`;
 
-  const messages = [
-    ...history.slice(-MAX_HISTORY_MESSAGES).filter((m) => m && m.role && m.content),
-    { role: "user" as const, content: question },
+  // Gemini has no separate "assistant" role — prior turns are "model".
+  const contents = [
+    ...history
+      .slice(-MAX_HISTORY_MESSAGES)
+      .filter((m) => m && m.role && m.content)
+      .map((m) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      })),
+    { role: "user", parts: [{ text: question }] },
   ];
 
-  let anthropicRes: Response;
+  let geminiRes: Response;
   try {
-    anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages,
-      }),
-    });
+    geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          generationConfig: { maxOutputTokens: 1024 },
+        }),
+      }
+    );
   } catch {
     return NextResponse.json(
       { error: "Couldn't reach the AI service. Please try again." },
@@ -134,24 +142,25 @@ ${context}`;
     );
   }
 
-  if (!anthropicRes.ok) {
-    const errText = await anthropicRes.text().catch(() => "");
+  if (!geminiRes.ok) {
+    const errText = await geminiRes.text().catch(() => "");
     return NextResponse.json(
       {
         error:
-          anthropicRes.status === 401
-            ? "The AI service rejected the configured API key. Please check ANTHROPIC_API_KEY."
-            : `The AI service returned an error (${anthropicRes.status}). ${errText.slice(0, 200)}`,
+          geminiRes.status === 400 || geminiRes.status === 403
+            ? "The AI service rejected the configured API key. Please check GEMINI_API_KEY."
+            : geminiRes.status === 429
+              ? "The free Gemini quota was hit — please try again in a moment."
+              : `The AI service returned an error (${geminiRes.status}). ${errText.slice(0, 200)}`,
       },
       { status: 502 }
     );
   }
 
-  const data = await anthropicRes.json();
-  const answer =
-    Array.isArray(data?.content) && data.content[0]?.type === "text"
-      ? data.content[0].text
-      : "I couldn't generate an answer just now. Please try again.";
+  const data = await geminiRes.json();
+  const answer: string =
+    data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") ||
+    "I couldn't generate an answer just now. Please try again.";
 
   return NextResponse.json({ answer, sources: docs.length, configured: true });
 }
