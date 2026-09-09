@@ -162,8 +162,6 @@ export function DocumentLibrary({
   const [searchResults, setSearchResults] = useState<Document[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [indexingIds, setIndexingIds] = useState<Set<string>>(new Set());
-  const [backfilling, setBackfilling] = useState(false);
-  const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const moveMenuRef = useRef<HTMLDivElement>(null);
 
@@ -570,42 +568,6 @@ export function DocumentLibrary({
     router.refresh();
   }
 
-  async function handleBackfillIndex() {
-    setBackfilling(true);
-    setBackfillStatus("Indexing older documents for search…");
-    let processedTotal = 0;
-    try {
-      // Loops the batch endpoint until it reports nothing left — each
-      // call only indexes ~15 documents so it stays fast, so a client
-      // with a big backlog just makes a few more round trips here.
-      for (let guard = 0; guard < 50; guard++) {
-        const res = await fetch("/api/documents/backfill-index", {
-          method: "POST",
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          setBackfillStatus(json.error || "Something went wrong.");
-          break;
-        }
-        processedTotal += json.processed;
-        if (!json.remaining) {
-          setBackfillStatus(
-            processedTotal > 0
-              ? `Done — indexed ${processedTotal} document${
-                  processedTotal === 1 ? "" : "s"
-                } for search.`
-              : "Everything is already indexed for search."
-          );
-          break;
-        }
-      }
-    } catch {
-      setBackfillStatus("Something went wrong. Please try again.");
-    }
-    setBackfilling(false);
-    router.refresh();
-  }
-
   function docCountInFolder(folderId: string) {
     return documents.filter((d) => (d.folder_id ?? null) === folderId).length;
   }
@@ -797,21 +759,6 @@ export function DocumentLibrary({
           </button>
         )}
       </div>
-
-      {!isSearchActive && (
-        <div className="flex items-center justify-between -mt-2 mb-4">
-          <button
-            onClick={handleBackfillIndex}
-            disabled={backfilling}
-            className="text-xs font-medium text-slate-400 hover:text-brand-amber-dark transition-colors disabled:opacity-60"
-          >
-            {backfilling ? "Indexing…" : "Index older documents for search"}
-          </button>
-          {backfillStatus && (
-            <span className="text-xs text-slate-400">{backfillStatus}</span>
-          )}
-        </div>
-      )}
 
       {!isSearchActive && (
         <div
